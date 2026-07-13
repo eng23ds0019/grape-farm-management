@@ -284,6 +284,52 @@ class FirestoreService extends ChangeNotifier {
             .collection('diaryEntries')
             .doc(updatedEntry.entryId)
             .set(updatedEntry.toMap());
+
+        // Save nested expenses to direct subcollection 'expenses'
+        if (updatedEntry.expenses.isNotEmpty) {
+          for (int i = 0; i < updatedEntry.expenses.length; i++) {
+            final exp = updatedEntry.expenses[i];
+            await _db
+                .collection('users')
+                .doc(farmerId)
+                .collection('expenses')
+                .doc("${updatedEntry.entryId}_exp_$i")
+                .set(exp.toMap());
+          }
+        }
+
+        // Save reminderDate to direct subcollection 'reminders'
+        if (updatedEntry.reminderDate.isNotEmpty) {
+          await _db
+              .collection('users')
+              .doc(farmerId)
+              .collection('reminders')
+              .doc(updatedEntry.entryId)
+              .set({
+            'reminderDate': updatedEntry.reminderDate,
+            'cropStage': updatedEntry.cropStage,
+            'workType': updatedEntry.workType,
+            'originalText': updatedEntry.originalText,
+            'createdAt': DateTime.now().toIso8601String(),
+          });
+        }
+
+        // Save photo URLs to direct subcollection 'uploadedImages'
+        if (updatedEntry.photos.isNotEmpty) {
+          for (int i = 0; i < updatedEntry.photos.length; i++) {
+            final photoUrl = updatedEntry.photos[i];
+            await _db
+                .collection('users')
+                .doc(farmerId)
+                .collection('uploadedImages')
+                .doc("${updatedEntry.entryId}_img_$i")
+                .set({
+              'imageUrl': photoUrl,
+              'diaryEntryId': updatedEntry.entryId,
+              'createdAt': DateTime.now().toIso8601String(),
+            });
+          }
+        }
       } catch (e) {
         debugPrint("Firestore saveDiaryEntry failed: $e");
         rethrow;
