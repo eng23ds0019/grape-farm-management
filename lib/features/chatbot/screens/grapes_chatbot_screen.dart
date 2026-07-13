@@ -99,7 +99,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       if (_voiceModeActive && mounted) {
         Future.delayed(const Duration(milliseconds: 600), () {
           if (_voiceModeActive && mounted && !_isTyping && !_isTranscribing) {
-            _triggerVoiceInput(); // Start recording automatically for next turn
+            _listenVoiceConversation(); // Start recording automatically for next turn
           }
         });
       }
@@ -286,10 +286,10 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
     }
   }
 
-  // Speech input trigger
-  void _triggerVoiceInput() async {
+  // Speech-to-Text Microphone trigger (Just transcribes text into input field, no auto-submit)
+  void _triggerMicSTT() async {
     _silenceTimer?.cancel();
-    await _flutterTts.stop(); // Interruption support!
+    await _flutterTts.stop();
 
     if (_isTranscribing) return;
 
@@ -309,29 +309,12 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
       setState(() {
         _isTranscribing = false;
+        if (text.isNotEmpty) {
+          _inputController.text = text; // Just insert into text field, do NOT auto-submit!
+        }
       });
-
-      if (text.isNotEmpty) {
-        _handleMessageSubmit(text);
-      }
     } else {
       _micPulseController.repeat(reverse: true);
-      _voiceModeActive = true; // Turn voice conversation mode ON
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.mic, color: AppColors.softYellow),
-                const SizedBox(width: 8),
-                Text(langCode == 'kn-IN' ? "ಧ್ವನಿ ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಲಾಗಿದೆ. ನಿಲ್ಲಿಸಲು ಮೈಕ್ ಟ್ಯಾಪ್ ಮಾಡಿ." : "Voice recording started. Tap mic again to stop & process."),
-              ],
-            ),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
 
       await speechService.startListening(
         languageCode: langCode,
@@ -345,13 +328,196 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         onTimeout: () {
           _micPulseController.stop();
         },
+        recordAudio: false,
+      );
+    }
+  }
+
+  // Voice Conversation Mode triggers (ChatGPT Voice Mode loop)
+  void _startVoiceConversation() async {
+    _silenceTimer?.cancel();
+    await _flutterTts.stop();
+    
+    setState(() {
+      _voiceModeActive = true;
+    });
+
+    final langCode = Provider.of<LanguageNotifier>(context, listen: false).currentLanguage;
+    String greeting = "Hello, I am Draksha AI. How can I help you today?";
+    if (langCode == 'kn-IN') {
+      greeting = "ನಮಸ್ಕಾರ, ನಾನು ದ್ರಾಕ್ಷಾ AI. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?";
+    } else if (langCode == 'hi-IN') {
+      greeting = "नमस्कार, मैं द्राक्षा AI हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?";
+    }
+
+    // Add greeting to chat history
+    setState(() {
+      _messages.add(ChatMessage(
+        text: greeting,
+        isUser: false,
+        timestamp: DateTime.now(),
+      ));
+    });
+
+    // Speak greeting out loud, which then fires completion handler to start listening loop
+    await _speak(greeting, langCode);
+  }
+
+  void _listenVoiceConversation() async {
+    _silenceTimer?.cancel();
+    if (!_voiceModeActive || !mounted || _isTyping || _isTranscribing) return;
+
+    final speechService = Provider.of<SpeechService>(context, listen: false);
+    final langCode = Provider.of<LanguageNotifier>(context, listen: false).currentLanguage;
+
+    await speechService.initSpeech();
+
+    if (speechService.isListening) {
+      _micPulseController.stop();
+      setState(() {
+        _isTranscribing = true;
+      });
+
+      await speechService.stopListening();
+      final text = speechService.lastWords;
+
+      setState(() {
+        _isTranscribing = false;
+      });
+
+      if (text.isNotEmpty && _voiceModeActive) {
+        _handleMessageSubmitInternal(text); // Submit internally, do NOT update _inputController
+      }
+    } else {
+      _micPulseController.repeat(reverse: true);
+
+      await speechService.startListening(
+        languageCode: langCode,
+        onResult: (text, confidence) {
+          // Do NOT update _inputController.text! Keep text input field untouched!
+        },
+        onTimeout: () {
+          _micPulseController.stop();
+        },
       );
 
       // Automatic timeout submission after 8 seconds of speaking/silence for hands-free voice loop
       _silenceTimer = Timer(const Duration(seconds: 8), () {
         if (mounted && speechService.isListening && _voiceModeActive) {
-          _triggerVoiceInput(); // Auto stop & transcribe
+          _listenVoiceConversation();
         }
+      });
+    }
+  }
+
+  void _handleMessageSubmitInternal(String text) async {
+    if (text.trim().isEmpty) return;
+
+    _silenceTimer?.cancel();
+    await _flutterTts.stop();
+
+    setState(() {
+      _messages.add(ChatMessage(
+        text: text,
+        isUser: true,
+        timestamp: DateTime.now(),
+      ));
+      _isTyping = true;
+    });
+    _scrollToBottom();
+
+    final langCode = Provider.of<LanguageNotifier>(context, listen: false).currentLanguage;
+    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+    final farmerName = firestoreService.cachedFarmer?.name ?? (langCode == 'kn-IN' ? "ರೈತರೇ" : (langCode == 'hi-IN' ? "किसान भाई" : "Farmer"));
+
+    final entries = firestoreService.cachedDiary
+        .where((e) => e.farmId == widget.selectedFarmId)
+        .toList();
+
+    final sortedEntries = List.from(entries);
+    sortedEntries.sort((a, b) => b.date.compareTo(a.date));
+
+    String currentStage = "Flowering";
+    if (sortedEntries.isNotEmpty) {
+      currentStage = sortedEntries.first.cropStage;
+    }
+
+    // --- RAG Personalized Memory Lookup ---
+    final queryLower = text.toLowerCase();
+    
+    final matchedDiary = firestoreService.cachedDiary.where((e) {
+      final isStageMatch = e.cropStage.toLowerCase().contains(queryLower);
+      final isWorkMatch = e.workType.toLowerCase().contains(queryLower);
+      final isTextMatch = e.cleanedText.toLowerCase().contains(queryLower) ||
+                          e.originalText.toLowerCase().contains(queryLower);
+      final isDateMatch = _isDateOrMonthMatch(e.date, queryLower);
+      return isStageMatch || isWorkMatch || isTextMatch || isDateMatch;
+    }).toList();
+
+    final matchedBills = firestoreService.cachedBills.where((b) {
+      final isShopMatch = b.shopName.toLowerCase().contains(queryLower);
+      final isItemMatch = b.items.any((item) => item.itemName.toLowerCase().contains(queryLower));
+      final isDateMatch = _isDateOrMonthMatch(b.billDate, queryLower);
+      return isShopMatch || isItemMatch || isDateMatch;
+    }).toList();
+
+    final matchedTurnovers = firestoreService.cachedTurnovers.where((t) {
+      final isGrapeMatch = t.grapeType.toLowerCase().contains(queryLower);
+      final isDestMatch = t.allocations.any((a) => a.destinationName.toLowerCase().contains(queryLower));
+      final isDateMatch = _isDateOrMonthMatch(t.date, queryLower);
+      return isGrapeMatch || isDestMatch || isDateMatch;
+    }).toList();
+
+    final recentLogsSummary = matchedDiary.isNotEmpty 
+        ? matchedDiary.map((e) => "Date: ${e.date} | Stage: ${e.cropStage} | Work: ${e.workType} | Notes: ${e.cleanedText} | Expense: ₹${e.totalExpense.toStringAsFixed(0)}").join("\n")
+        : (sortedEntries.take(5).map((e) => "Date: ${e.date} | Stage: ${e.cropStage} | Work: ${e.workType} | Notes: ${e.cleanedText} | Expense: ₹${e.totalExpense.toStringAsFixed(0)}").join("\n"));
+
+    final bills = firestoreService.cachedBills;
+    final recentBillsSummary = matchedBills.isNotEmpty
+        ? matchedBills.map((b) => "Date: ${b.billDate} | Shop: ${b.shopName} | Total: ₹${b.totalAmount.toStringAsFixed(0)} | Items: [${b.items.map((i) => "${i.itemName} (Qty: ${i.quantity} ${i.unit}, Amt: ₹${i.amount.toStringAsFixed(0)})").join(", ")}]").join("\n")
+        : (bills.take(5).map((b) => "Date: ${b.billDate} | Shop: ${b.shopName} | Total: ₹${b.totalAmount.toStringAsFixed(0)} | Items: [${b.items.map((i) => "${i.itemName} (Qty: ${i.quantity} ${i.unit}, Amt: ₹${i.amount.toStringAsFixed(0)})").join(", ")}]").join("\n"));
+
+    final turnovers = firestoreService.cachedTurnovers;
+    final recentTurnoversSummary = matchedTurnovers.isNotEmpty
+        ? matchedTurnovers.map((t) => "Date: ${t.date} | Grape Type: ${t.grapeType} | Total Yield: ${t.totalYield} tons | Allocations: [${t.allocations.map((a) => "Dest: ${a.destinationName} (Qty: ${a.quantitySent} tons, Vehicle: ${a.vehicleNumberPlate})").join(", ")}]").join("\n")
+        : (turnovers.take(5).map((t) => "Date: ${t.date} | Grape Type: ${t.grapeType} | Total Yield: ${t.totalYield} tons | Allocations: [${t.allocations.map((a) => "Dest: ${a.destinationName} (Qty: ${a.quantitySent} tons, Vehicle: ${a.vehicleNumberPlate})").join(", ")}]").join("\n"));
+
+    try {
+      final replyText = await GeminiService.getChatResponse(
+        farmerName: farmerName,
+        query: text,
+        languageCode: langCode,
+        plotStage: currentStage,
+        recentEntriesSummary: recentLogsSummary.isNotEmpty ? recentLogsSummary : "No recent logs recorded yet.",
+        recentBillsSummary: recentBillsSummary.isNotEmpty ? recentBillsSummary : "No scanned purchase bills recorded yet.",
+        recentTurnoversSummary: recentTurnoversSummary.isNotEmpty ? recentTurnoversSummary : "No grape sales/yield records recorded yet.",
+      );
+
+      if (!mounted) return;
+
+      final String headerText = langCode == 'kn-IN'
+          ? "🤖 [ ದ್ರಾಕ್ಷಾ AI ಆಪ್ತ ಸಲಹೆಗಾರ ]\n\n"
+          : (langCode == 'hi-IN'
+              ? "🤖 [ ದ್ರಾಕ್ಷಾ AI सलाहकार ]\n\n"
+              : "🤖 [ Draksha AI Advisor ]\n\n");
+
+      final fullReply = headerText + replyText;
+
+      setState(() {
+        _isTyping = false;
+        _messages.add(ChatMessage(
+          text: fullReply,
+          isUser: false,
+          timestamp: DateTime.now(),
+        ));
+      });
+      _speak(replyText, langCode);
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint("Error getting chatbot response: $e");
+      if (!mounted) return;
+      setState(() {
+        _isTyping = false;
       });
     }
   }
@@ -642,7 +808,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
                                     )
                                   : IconButton(
                                       icon: Icon(isListening ? Icons.mic_off : Icons.mic, color: AppColors.white),
-                                      onPressed: _triggerVoiceInput,
+                                      onPressed: _triggerMicSTT,
                                     ),
                             ),
                           );
@@ -657,12 +823,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
                         child: IconButton(
                           icon: const Icon(Icons.graphic_eq, color: AppColors.white),
                           tooltip: "Start Voice Conversation",
-                          onPressed: () {
-                            setState(() {
-                              _voiceModeActive = true;
-                            });
-                            _triggerVoiceInput();
-                          },
+                          onPressed: _startVoiceConversation,
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1265,30 +1426,37 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
                         _buildWaveCircle(1.1, statusColor.withOpacity(0.35)),
                         
                         // Center Orb
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RadialGradient(
-                              colors: [
-                                statusColor,
-                                statusColor.withOpacity(0.7),
-                                statusColor.withOpacity(0.3),
-                              ],
+                        GestureDetector(
+                          onTap: () {
+                            if (isListening) {
+                              _listenVoiceConversation(); // Triggers stopListening and processes
+                            }
+                          },
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  statusColor,
+                                  statusColor.withOpacity(0.7),
+                                  statusColor.withOpacity(0.3),
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: statusColor.withOpacity(0.6),
+                                  blurRadius: 30,
+                                  spreadRadius: 5,
+                                )
+                              ]
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: statusColor.withOpacity(0.6),
-                                blurRadius: 30,
-                                spreadRadius: 5,
-                              )
-                            ]
-                          ),
-                          child: Icon(
-                            isListening ? Icons.mic : (_isTyping ? Icons.hourglass_empty : Icons.record_voice_over),
-                            color: Colors.white,
-                            size: 40,
+                            child: Icon(
+                              isListening ? Icons.mic : (_isTyping ? Icons.hourglass_empty : Icons.record_voice_over),
+                              color: Colors.white,
+                              size: 40,
+                            ),
                           ),
                         ),
                       ],
