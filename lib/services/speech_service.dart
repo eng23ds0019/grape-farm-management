@@ -141,8 +141,8 @@ class SpeechService extends ChangeNotifier {
     }
   }
 
-  /// Manually stops listening
-  Future<void> stopListening() async {
+  /// Manually stops listening and returns final transcribed text
+  Future<String> stopListening() async {
     if (_isListening) {
       if (_recordAudioActive && _recordingPath != null) {
         try {
@@ -171,11 +171,18 @@ class SpeechService extends ChangeNotifier {
         }
       } else if (_isAvailable) {
         await _speech.stop();
+        // Wait up to 600ms for native finalResult callback to update _lastWords
+        int elapsed = 0;
+        while (_isListening && elapsed < 600) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          elapsed += 50;
+        }
       }
 
       _isListening = false;
       notifyListeners();
     }
+    return _lastWords;
   }
 
   @override

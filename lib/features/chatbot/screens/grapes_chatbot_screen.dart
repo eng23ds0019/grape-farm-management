@@ -45,10 +45,78 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
   bool _voiceModeActive = false; // Tracks if voice conversation loop is running
   Timer? _silenceTimer; // Silence/auto-submit timer for hands-free mode
+  Timer? _ttsSafetyTimer; // Safety fallback timer for TTS completion callbacks
   bool _isMuted = false; // Tracks if TTS audio output is muted
 
   // Speak-back AI Chatbot engine
   final FlutterTts _flutterTts = FlutterTts();
+
+  void _startTtsSafetyTimer(String text) {
+    _ttsSafetyTimer?.cancel();
+    final wordCount = text.split(RegExp(r'\s+')).length;
+    // Estimate speaking duration: ~3 words per second, plus 2 seconds buffer
+    final durationSeconds = (wordCount / 3.0).ceil() + 2;
+    
+    _ttsSafetyTimer = Timer(Duration(seconds: durationSeconds), () {
+      if (_voiceModeActive && mounted && !_isTyping && !_isTranscribing) {
+        final speechService = Provider.of<SpeechService>(context, listen: false);
+        if (!speechService.isListening) {
+          debugPrint("TTS Safety Timer fired: Auto-starting voice recording loop.");
+          _listenVoiceConversation();
+        }
+      }
+    });
+  }
+
+  String _getGreetingMessage(String farmerName, String langCode) {
+    final hour = DateTime.now().hour;
+    String timeOfDay = "Morning";
+    
+    if (hour >= 5 && hour < 12) {
+      timeOfDay = "Morning";
+    } else if (hour >= 12 && hour < 17) {
+      timeOfDay = "Afternoon";
+    } else if (hour >= 17 && hour < 21) {
+      timeOfDay = "Evening";
+    } else {
+      timeOfDay = "Night";
+    }
+
+    if (langCode == 'kn-IN') {
+      switch (timeOfDay) {
+        case "Morning":
+          return "ಶುಭೋದಯ, $farmerName. ನಾನು ದ್ರಾಕ್ಷಾ AI. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?";
+        case "Afternoon":
+          return "ಶುಭ ಮಧ್ಯಾಹ್ನ, $farmerName. ನಾನು ದ್ರಾಕ್ಷಾ AI. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?";
+        case "Evening":
+          return "ಶುಭ ಸಾಯಂಕಾಲ, $farmerName. ನಾನು ದ್ರಾಕ್ಷಾ AI. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?";
+        default:
+          return "ಶುಭ ರಾತ್ರಿ, $farmerName. ನಾನು ದ್ರಾಕ್ಷಾ AI. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?";
+      }
+    } else if (langCode == 'hi-IN') {
+      switch (timeOfDay) {
+        case "Morning":
+          return "सुप्रभात, $farmerName। मैं द्राक्षा AI हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?";
+        case "Afternoon":
+          return "नमस्कार दोपहर, $farmerName। मैं द्राक्षा AI हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?";
+        case "Evening":
+          return "शुभ संध्या, $farmerName। मैं द्राक्षा AI हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?";
+        default:
+          return "शुभ रात्रि, $farmerName। मैं द्राक्षा AI हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?";
+      }
+    } else {
+      switch (timeOfDay) {
+        case "Morning":
+          return "Good morning, $farmerName. I am Draksha AI. How can I help you today?";
+        case "Afternoon":
+          return "Good afternoon, $farmerName. I am Draksha AI. How can I help you today?";
+        case "Evening":
+          return "Good evening, $farmerName. I am Draksha AI. How can I help you today?";
+        default:
+          return "Good night, $farmerName. I am Draksha AI. How can I help you today?";
+      }
+    }
+  }
 
   String _detectLanguageOfText(String text) {
     final knReg = RegExp(r'[\u0C80-\u0CFF]');
@@ -78,6 +146,12 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
           spokenText = text.substring(idx + 2);
         }
       }
+
+      // Start safety fallback timer for Voice mode loops!
+      if (_voiceModeActive) {
+        _startTtsSafetyTimer(spokenText);
+      }
+
       await _flutterTts.speak(spokenText);
     } catch (e) {
       debugPrint("TTS speak failed: $e");
@@ -304,8 +378,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         _isTranscribing = true;
       });
 
-      await speechService.stopListening();
-      final text = speechService.lastWords;
+      final text = await speechService.stopListening();
 
       setState(() {
         _isTranscribing = false;
@@ -336,6 +409,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
   // Voice Conversation Mode triggers (ChatGPT Voice Mode loop)
   void _startVoiceConversation() async {
     _silenceTimer?.cancel();
+    _ttsSafetyTimer?.cancel();
     await _flutterTts.stop();
     
     setState(() {
@@ -343,12 +417,10 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
     });
 
     final langCode = Provider.of<LanguageNotifier>(context, listen: false).currentLanguage;
-    String greeting = "Hello, I am Draksha AI. How can I help you today?";
-    if (langCode == 'kn-IN') {
-      greeting = "ನಮಸ್ಕಾರ, ನಾನು ದ್ರಾಕ್ಷಾ AI. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?";
-    } else if (langCode == 'hi-IN') {
-      greeting = "नमस्कार, मैं द्राक्षा AI हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?";
-    }
+    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+    final farmerName = firestoreService.cachedFarmer?.name ?? (langCode == 'kn-IN' ? "ರೈತರೇ" : (langCode == 'hi-IN' ? "किसान भाई" : "Farmer"));
+    
+    final greeting = _getGreetingMessage(farmerName, langCode);
 
     // Add greeting to chat history
     setState(() {
@@ -365,6 +437,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
   void _listenVoiceConversation() async {
     _silenceTimer?.cancel();
+    _ttsSafetyTimer?.cancel(); // Acknowledge completion of speaking, cancel safety timer
     if (!_voiceModeActive || !mounted || _isTyping || _isTranscribing) return;
 
     final speechService = Provider.of<SpeechService>(context, listen: false);
@@ -378,8 +451,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         _isTranscribing = true;
       });
 
-      await speechService.stopListening();
-      final text = speechService.lastWords;
+      final text = await speechService.stopListening();
 
       setState(() {
         _isTranscribing = false;
