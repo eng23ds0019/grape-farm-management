@@ -44,6 +44,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
   bool _voiceModeActive = false; // Tracks if voice conversation loop is running
   Timer? _silenceTimer; // Silence/auto-submit timer for hands-free mode
+  bool _isMuted = false; // Tracks if TTS audio output is muted
 
   // Speak-back AI Chatbot engine
   final FlutterTts _flutterTts = FlutterTts();
@@ -57,6 +58,10 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
   }
 
   Future<void> _speak(String text, String langCode) async {
+    if (_isMuted) {
+      debugPrint("TTS: Muted, skipping speech playback.");
+      return;
+    }
     try {
       await _flutterTts.stop();
       final ttsLang = _detectLanguageOfText(text);
@@ -469,10 +474,89 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
             ),
           ],
         ),
+        actions: [
+          // Voice Conversation Mode toggle (headset icon)
+          IconButton(
+            icon: Icon(
+              _voiceModeActive ? Icons.headset : Icons.headset_off,
+              color: _voiceModeActive ? AppColors.softYellow : AppColors.white.withOpacity(0.6),
+            ),
+            tooltip: "Voice Conversation Mode",
+            onPressed: () {
+              setState(() {
+                _voiceModeActive = !_voiceModeActive;
+              });
+              if (_voiceModeActive) {
+                _triggerVoiceInput();
+              } else {
+                _flutterTts.stop();
+                _silenceTimer?.cancel();
+                final speechService = Provider.of<SpeechService>(context, listen: false);
+                if (speechService.isListening) {
+                  speechService.stopListening();
+                }
+              }
+            },
+          ),
+          // TTS Mute toggle (volume icon)
+          IconButton(
+            icon: Icon(
+              _isMuted ? Icons.volume_off : Icons.volume_up,
+              color: AppColors.white,
+            ),
+            tooltip: "Mute AI Speech Output",
+            onPressed: () {
+              setState(() {
+                _isMuted = !_isMuted;
+              });
+              if (_isMuted) {
+                _flutterTts.stop();
+              }
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
+            if (_voiceModeActive)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                color: AppColors.primaryGreen.withOpacity(0.15),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.record_voice_over, color: AppColors.primaryGreen, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      langCode == 'kn-IN'
+                          ? "ಧ್ವನಿ ಸಂಭಾಷಣೆ ಸಕ್ರಿಯವಾಗಿದೆ..."
+                          : (langCode == 'hi-IN' ? "आवाज बातचीत सक्रिय है..." : "Voice Conversation Mode Active..."),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryGreen),
+                    ),
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _voiceModeActive = false;
+                          _flutterTts.stop();
+                          _silenceTimer?.cancel();
+                          Provider.of<SpeechService>(context, listen: false).stopListening();
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.errorRed,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text("EXIT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             // Chat messages list
             Expanded(
               child: _messages.isEmpty
