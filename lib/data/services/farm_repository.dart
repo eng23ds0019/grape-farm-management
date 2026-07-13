@@ -25,14 +25,14 @@ class FarmRepository {
   }
 
   CollectionReference<Map<String, dynamic>> farmsRef(String farmerId) {
-    return userRef(farmerId).collection('farms');
+    return userRef(farmerId).collection('cropRecords');
   }
 
   CollectionReference<Map<String, dynamic>> diaryRef(
     String farmerId,
     String farmId,
   ) {
-    return farmsRef(farmerId).doc(farmId).collection('diaryEntries');
+    return userRef(farmerId).collection('diaryEntries');
   }
 
   Stream<FarmerProfile?> profileStream(String farmerId) {
@@ -86,9 +86,8 @@ class FarmRepository {
   }
 
   Future<void> saveBill(String farmerId, String farmId, BillRecord bill) async {
-    await farmsRef(farmerId)
-        .doc(farmId)
-        .collection('bills')
+    await userRef(farmerId)
+        .collection('fertilizerBills')
         .doc(bill.billId.isEmpty ? null : bill.billId)
         .set(bill.toMap(forCreate: true), SetOptions(merge: true));
     await analytics.logEvent('bill_scanned', farmerId: farmerId);

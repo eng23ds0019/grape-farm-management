@@ -34,6 +34,15 @@ class FirestoreService extends ChangeNotifier {
   StreamSubscription<dynamic>? _connectivitySubscription;
 
   FirestoreService() {
+    try {
+      _db.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
+      debugPrint("FirestoreService: Successfully configured unlimited offline persistence.");
+    } catch (e) {
+      debugPrint("FirestoreService: Settings already initialized or configuration failed: $e");
+    }
     _loadLocalData();
     _initConnectivityListener();
   }
@@ -89,8 +98,8 @@ class FirestoreService extends ChangeNotifier {
     
     await _loadLocalData();
     
-    // Auto-fetch data from Firestore if local cache is empty for this user session
-    if (!_useMock && _cachedFarmer == null) {
+    // Always auto-fetch fresh data from Firestore upon login or user switch
+    if (!_useMock) {
       fetchAndSyncAllData(userId).catchError((e) {
         debugPrint("Background sync failed in switchUser: $e");
       });
@@ -209,9 +218,12 @@ class FirestoreService extends ChangeNotifier {
     await _saveLocalCache('local_farmer', jsonEncode(map));
 
     if (!_useMock) {
-      _db.collection('users').doc(farmer.farmerId).set(map).catchError((e) {
+      try {
+        await _db.collection('users').doc(farmer.farmerId).set(map);
+      } catch (e) {
         debugPrint("Firestore saveFarmerProfile failed: $e");
-      });
+        rethrow;
+      }
     }
   }
 
@@ -225,15 +237,17 @@ class FirestoreService extends ChangeNotifier {
     await _saveLocalCache('local_farms', list);
 
     if (!_useMock) {
-      _db
-          .collection('users')
-          .doc(farmerId)
-          .collection('farms')
-          .doc(farm.farmId)
-          .set(farm.toMap())
-          .catchError((e) {
+      try {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('cropRecords')
+            .doc(farm.farmId)
+            .set(farm.toMap());
+      } catch (e) {
         debugPrint("Firestore addFarm failed: $e");
-      });
+        rethrow;
+      }
     }
   }
 
@@ -263,17 +277,17 @@ class FirestoreService extends ChangeNotifier {
     await _saveLocalCache('local_diary', list);
 
     if (!_useMock) {
-      _db
-          .collection('users')
-          .doc(farmerId)
-          .collection('farms')
-          .doc(farmId)
-          .collection('diaryEntries')
-          .doc(updatedEntry.entryId)
-          .set(updatedEntry.toMap())
-          .catchError((e) {
+      try {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('diaryEntries')
+            .doc(updatedEntry.entryId)
+            .set(updatedEntry.toMap());
+      } catch (e) {
         debugPrint("Firestore saveDiaryEntry failed: $e");
-      });
+        rethrow;
+      }
     }
   }
 
@@ -293,20 +307,21 @@ class FirestoreService extends ChangeNotifier {
       await _saveLocalCache('local_diary', list);
 
       if (!_useMock) {
-        _db
-            .collection('users')
-            .doc(farmerId)
-            .collection('farms')
-            .doc(farmId)
-            .collection('diaryEntries')
-            .doc(entryId)
-            .update({
-          'isDeleted': true,
-          'deletedAt': DateTime.now().toIso8601String(),
-          'updatedAt': DateTime.now().toIso8601String(),
-        }).catchError((e) {
+        try {
+          await _db
+              .collection('users')
+              .doc(farmerId)
+              .collection('diaryEntries')
+              .doc(entryId)
+              .update({
+            'isDeleted': true,
+            'deletedAt': DateTime.now().toIso8601String(),
+            'updatedAt': DateTime.now().toIso8601String(),
+          });
+        } catch (e) {
           debugPrint("Firestore softDeleteDiaryEntry failed: $e");
-        });
+          rethrow;
+        }
       }
     }
   }
@@ -327,20 +342,21 @@ class FirestoreService extends ChangeNotifier {
       await _saveLocalCache('local_diary', list);
 
       if (!_useMock) {
-        _db
-            .collection('users')
-            .doc(farmerId)
-            .collection('farms')
-            .doc(farmId)
-            .collection('diaryEntries')
-            .doc(entryId)
-            .update({
-          'isDeleted': false,
-          'deletedAt': null,
-          'updatedAt': DateTime.now().toIso8601String(),
-        }).catchError((e) {
+        try {
+          await _db
+              .collection('users')
+              .doc(farmerId)
+              .collection('diaryEntries')
+              .doc(entryId)
+              .update({
+            'isDeleted': false,
+            'deletedAt': null,
+            'updatedAt': DateTime.now().toIso8601String(),
+          });
+        } catch (e) {
           debugPrint("Firestore restoreDiaryEntry failed: $e");
-        });
+          rethrow;
+        }
       }
     }
   }
@@ -360,15 +376,17 @@ class FirestoreService extends ChangeNotifier {
     await _saveLocalCache('local_bills', list);
 
     if (!_useMock) {
-      _db
-          .collection('users')
-          .doc(farmerId)
-          .collection('bills')
-          .doc(bill.billId)
-          .set(bill.toFirebaseMap())
-          .catchError((e) {
+      try {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('fertilizerBills')
+            .doc(bill.billId)
+            .set(bill.toFirebaseMap());
+      } catch (e) {
         debugPrint("Firestore saveBill failed: $e");
-      });
+        rethrow;
+      }
     }
   }
 
@@ -387,15 +405,17 @@ class FirestoreService extends ChangeNotifier {
     await _saveLocalCache('local_turnovers', list);
 
     if (!_useMock) {
-      _db
-          .collection('users')
-          .doc(farmerId)
-          .collection('turnovers')
-          .doc(turnover.turnoverId)
-          .set(turnover.toMap())
-          .catchError((e) {
+      try {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('turnovers')
+            .doc(turnover.turnoverId)
+            .set(turnover.toMap());
+      } catch (e) {
         debugPrint("Firestore saveTurnover failed: $e");
-      });
+        rethrow;
+      }
     }
   }
 
@@ -405,42 +425,39 @@ class FirestoreService extends ChangeNotifier {
     if (_useMock) return;
 
     try {
-      // Push local cached entries, bills and turnovers to Firebase
+      // Sync Crop Records
       for (var farm in _cachedFarms) {
-        await _db.collection('users').doc(farmerId).collection('farms').doc(farm.farmId).set(farm.toMap());
+        await _db.collection('users').doc(farmerId).collection('cropRecords').doc(farm.farmId).set(farm.toMap());
+      }
 
-        // Sync Diary
-        final farmDiary = _cachedDiary.where((e) => e.farmId == farm.farmId);
-        for (var entry in farmDiary) {
-          await _db
-              .collection('users')
-              .doc(farmerId)
-              .collection('farms')
-              .doc(farm.farmId)
-              .collection('diaryEntries')
-              .doc(entry.entryId)
-              .set(entry.copyWith(isSynced: true).toMap());
-        }
+      // Sync Diary (direct subcollection of user)
+      for (var entry in _cachedDiary) {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('diaryEntries')
+            .doc(entry.entryId)
+            .set(entry.copyWith(isSynced: true).toMap());
+      }
 
-        // Sync Bills
-        for (var bill in _cachedBills) {
-          await _db
-              .collection('users')
-              .doc(farmerId)
-              .collection('bills')
-              .doc(bill.billId)
-              .set(bill.toFirebaseMap());
-        }
+      // Sync Bills (direct subcollection of user)
+      for (var bill in _cachedBills) {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('fertilizerBills')
+            .doc(bill.billId)
+            .set(bill.toFirebaseMap());
+      }
 
-        // Sync Turnovers
-        for (var turnover in _cachedTurnovers) {
-          await _db
-              .collection('users')
-              .doc(farmerId)
-              .collection('turnovers')
-              .doc(turnover.turnoverId)
-              .set(turnover.toMap());
-        }
+      // Sync Turnovers (direct subcollection of user)
+      for (var turnover in _cachedTurnovers) {
+        await _db
+            .collection('users')
+            .doc(farmerId)
+            .collection('turnovers')
+            .doc(turnover.turnoverId)
+            .set(turnover.toMap());
       }
 
       // Refresh sync states
@@ -495,11 +512,12 @@ class FirestoreService extends ChangeNotifier {
   Future<void> fetchAndSyncAllData(String farmerId) async {
     if (_useMock) return;
     try {
+      debugPrint("Firestore: Starting full data fetch and sync for user $farmerId");
       // 1. Farmer Profile
       await fetchFarmerProfile(farmerId);
 
-      // 2. Farms
-      final farmsSnap = await _db.collection('users').doc(farmerId).collection('farms').get();
+      // 2. Crop Records (Farms)
+      final farmsSnap = await _db.collection('users').doc(farmerId).collection('cropRecords').get();
       _cachedFarms.clear();
       for (var doc in farmsSnap.docs) {
         _cachedFarms.add(FarmModel.fromMap(doc.data(), doc.id));
@@ -507,25 +525,21 @@ class FirestoreService extends ChangeNotifier {
       final List<String> farmsList = _cachedFarms.map((f) => jsonEncode(f.toMap())).toList();
       await _saveLocalCache('local_farms', farmsList);
 
-      // 3. Diary Entries
+      // 3. Diary Entries (Direct under user)
+      final diarySnap = await _db
+          .collection('users')
+          .doc(farmerId)
+          .collection('diaryEntries')
+          .get();
       _cachedDiary.clear();
-      for (var farm in _cachedFarms) {
-        final diarySnap = await _db
-            .collection('users')
-            .doc(farmerId)
-            .collection('farms')
-            .doc(farm.farmId)
-            .collection('diaryEntries')
-            .get();
-        for (var doc in diarySnap.docs) {
-          _cachedDiary.add(DiaryEntryModel.fromMap(doc.data(), doc.id));
-        }
+      for (var doc in diarySnap.docs) {
+        _cachedDiary.add(DiaryEntryModel.fromMap(doc.data(), doc.id));
       }
       final List<String> diaryList = _cachedDiary.map((e) => jsonEncode(e.toMap())).toList();
       await _saveLocalCache('local_diary', diaryList);
 
-      // 4. Bills
-      final billsSnap = await _db.collection('users').doc(farmerId).collection('bills').get();
+      // 4. Bills (Fertilizer Bills)
+      final billsSnap = await _db.collection('users').doc(farmerId).collection('fertilizerBills').get();
       _cachedBills.clear();
       for (var doc in billsSnap.docs) {
         _cachedBills.add(BillModel.fromMap(doc.data(), doc.id));

@@ -25,6 +25,10 @@ class FirebaseAuthService extends ChangeNotifier {
 
   FirebaseAuthService() {
     _checkSavedLogin();
+    _auth.authStateChanges().listen((User? user) {
+      debugPrint("FirebaseAuthService: authStateChanges fired. User: ${user?.uid}");
+      notifyListeners();
+    });
   }
 
   // Set mock mode status and persist it

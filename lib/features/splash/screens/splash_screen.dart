@@ -54,10 +54,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       final uid = authService.currentUid;
       if (uid != null) {
         try {
-          // If the profile cache is not loaded yet, fetch it remotely to confirm status
-          if (firestoreService.cachedFarmer == null) {
-            await firestoreService.fetchAndSyncAllData(uid);
-          }
+          // Always fetch and sync remote data on startup to ensure we restore all farmer data
+          await firestoreService.fetchAndSyncAllData(uid);
         } catch (e) {
           debugPrint("Splash background sync failed: $e");
         }

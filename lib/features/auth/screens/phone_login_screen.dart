@@ -78,11 +78,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (success && mounted) {
       final uid = authService.currentUid;
       if (uid != null) {
-        // Fetch farmer profile and trigger background sync
-        final farmer = await firestoreService.fetchFarmerProfile(uid);
-        if (farmer != null) {
-          await firestoreService.fetchAndSyncAllData(uid);
-        }
+        // Always perform a full sync and download of user data from Firestore on login
+        await firestoreService.fetchAndSyncAllData(uid);
       }
 
       setState(() {
