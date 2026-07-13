@@ -42,24 +42,29 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
   bool _isTranscribing = false;
   late AnimationController _micPulseController;
 
+  bool _voiceModeActive = false; // Tracks if voice conversation loop is running
+  Timer? _silenceTimer; // Silence/auto-submit timer for hands-free mode
+
   // Speak-back AI Chatbot engine
   final FlutterTts _flutterTts = FlutterTts();
+
+  String _detectLanguageOfText(String text) {
+    final knReg = RegExp(r'[\u0C80-\u0CFF]');
+    final hiReg = RegExp(r'[\u0900-\u097F]');
+    if (knReg.hasMatch(text)) return 'kn-IN';
+    if (hiReg.hasMatch(text)) return 'hi-IN';
+    return 'en-US';
+  }
 
   Future<void> _speak(String text, String langCode) async {
     try {
       await _flutterTts.stop();
-      String ttsLang = "en-US";
-      if (langCode == 'kn-IN') {
-        ttsLang = "kn-IN";
-      } else if (langCode == 'hi-IN') {
-        ttsLang = "hi-IN";
-      }
+      final ttsLang = _detectLanguageOfText(text);
       await _flutterTts.setLanguage(ttsLang);
-      await _flutterTts.setSpeechRate(0.45); // standard comfortable rate for farmers
+      await _flutterTts.setSpeechRate(ttsLang == 'en-US' ? 0.5 : 0.45);
       await _flutterTts.setVolume(1.0);
       await _flutterTts.setPitch(1.0);
       
-      // Filter out the NLP confidence badge from the speech reader so it sounds natural!
       String spokenText = text;
       if (text.startsWith("🤖")) {
         final idx = text.indexOf("\n\n");
@@ -83,6 +88,17 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       upperBound: 1.3,
     );
 
+    // Continuous voice mode completion handler
+    _flutterTts.setCompletionHandler(() {
+      if (_voiceModeActive && mounted) {
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (_voiceModeActive && mounted && !_isTyping && !_isTranscribing) {
+            _triggerVoiceInput(); // Start recording automatically for next turn
+          }
+        });
+      }
+    });
+
     // Initial greeting
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final langCode = Provider.of<LanguageNotifier>(context, listen: false).currentLanguage;
@@ -100,6 +116,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
   @override
   void dispose() {
+    _silenceTimer?.cancel();
     _micPulseController.dispose();
     _inputController.dispose();
     _scrollController.dispose();
@@ -119,9 +136,41 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
     });
   }
 
+  bool _isDateOrMonthMatch(String dateStr, String query) {
+    final queryLower = query.toLowerCase();
+    final months = {
+      'january': '01', 'jan': '01',
+      'february': '02', 'feb': '02',
+      'march': '03', 'mar': '03',
+      'april': '04', 'apr': '04',
+      'may': '05',
+      'june': '06', 'jun': '06',
+      'july': '07', 'jul': '07',
+      'august': '08', 'aug': '08',
+      'september': '09', 'sep': '09',
+      'october': '10', 'oct': '10',
+      'november': '11', 'nov': '11',
+      'december': '12', 'dec': '12',
+    };
+    for (var m in months.keys) {
+      if (queryLower.contains(m)) {
+        if (dateStr.split('-').length > 1 && dateStr.split('-')[1] == months[m]) return true;
+      }
+    }
+    final yearRegex = RegExp(r'\b(20\d{2})\b');
+    final match = yearRegex.firstMatch(queryLower);
+    if (match != null) {
+      if (dateStr.startsWith(match.group(1)!)) return true;
+    }
+    return false;
+  }
+
   // NLP reasoning engine to query cached diary records & agricultural knowledge base
   void _handleMessageSubmit(String text) async {
     if (text.trim().isEmpty) return;
+
+    _silenceTimer?.cancel(); // Cancel any auto-submit timers
+    await _flutterTts.stop(); // Stop speaking immediately on new submit
 
     setState(() {
       _messages.add(ChatMessage(
@@ -151,21 +200,45 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       currentStage = sortedEntries.first.cropStage;
     }
 
-    final recentLogsSummary = sortedEntries.take(10).map((e) {
-      return "Date: ${e.date} | Stage: ${e.cropStage} | Work: ${e.workType} | Notes: ${e.cleanedText} | Expense: ₹${e.totalExpense.toStringAsFixed(0)}";
-    }).join("\n");
+    // --- RAG Personalized Memory Lookup ---
+    final queryLower = text.toLowerCase();
+    
+    final matchedDiary = firestoreService.cachedDiary.where((e) {
+      final isStageMatch = e.cropStage.toLowerCase().contains(queryLower);
+      final isWorkMatch = e.workType.toLowerCase().contains(queryLower);
+      final isTextMatch = e.cleanedText.toLowerCase().contains(queryLower) ||
+                          e.originalText.toLowerCase().contains(queryLower);
+      final isDateMatch = _isDateOrMonthMatch(e.date, queryLower);
+      return isStageMatch || isWorkMatch || isTextMatch || isDateMatch;
+    }).toList();
+
+    final matchedBills = firestoreService.cachedBills.where((b) {
+      final isShopMatch = b.shopName.toLowerCase().contains(queryLower);
+      final isItemMatch = b.items.any((item) => item.itemName.toLowerCase().contains(queryLower));
+      final isDateMatch = _isDateOrMonthMatch(b.billDate, queryLower);
+      return isShopMatch || isItemMatch || isDateMatch;
+    }).toList();
+
+    final matchedTurnovers = firestoreService.cachedTurnovers.where((t) {
+      final isGrapeMatch = t.grapeType.toLowerCase().contains(queryLower);
+      final isDestMatch = t.allocations.any((a) => a.destinationName.toLowerCase().contains(queryLower));
+      final isDateMatch = _isDateOrMonthMatch(t.date, queryLower);
+      return isGrapeMatch || isDestMatch || isDateMatch;
+    }).toList();
+
+    final recentLogsSummary = matchedDiary.isNotEmpty 
+        ? matchedDiary.map((e) => "Date: ${e.date} | Stage: ${e.cropStage} | Work: ${e.workType} | Notes: ${e.cleanedText} | Expense: ₹${e.totalExpense.toStringAsFixed(0)}").join("\n")
+        : (sortedEntries.take(5).map((e) => "Date: ${e.date} | Stage: ${e.cropStage} | Work: ${e.workType} | Notes: ${e.cleanedText} | Expense: ₹${e.totalExpense.toStringAsFixed(0)}").join("\n"));
 
     final bills = firestoreService.cachedBills;
-    final recentBillsSummary = bills.take(10).map((b) {
-      final itemsStr = b.items.map((i) => "${i.itemName} (Qty: ${i.quantity} ${i.unit}, Amt: ₹${i.amount.toStringAsFixed(0)})").join(", ");
-      return "Date: ${b.billDate} | Shop: ${b.shopName} | Total: ₹${b.totalAmount.toStringAsFixed(0)} | Items: [$itemsStr]";
-    }).join("\n");
+    final recentBillsSummary = matchedBills.isNotEmpty
+        ? matchedBills.map((b) => "Date: ${b.billDate} | Shop: ${b.shopName} | Total: ₹${b.totalAmount.toStringAsFixed(0)} | Items: [${b.items.map((i) => "${i.itemName} (Qty: ${i.quantity} ${i.unit}, Amt: ₹${i.amount.toStringAsFixed(0)})").join(", ")}]").join("\n")
+        : (bills.take(5).map((b) => "Date: ${b.billDate} | Shop: ${b.shopName} | Total: ₹${b.totalAmount.toStringAsFixed(0)} | Items: [${b.items.map((i) => "${i.itemName} (Qty: ${i.quantity} ${i.unit}, Amt: ₹${i.amount.toStringAsFixed(0)})").join(", ")}]").join("\n"));
 
     final turnovers = firestoreService.cachedTurnovers;
-    final recentTurnoversSummary = turnovers.take(10).map((t) {
-      final allocationsStr = t.allocations.map((a) => "Dest: ${a.destinationName} (Qty: ${a.quantitySent} tons, Acc: ${a.billingAccountNumber}, Vehicle: ${a.vehicleNumberPlate})").join(", ");
-      return "Date: ${t.date} | Grape Type: ${t.grapeType} | Total Yield: ${t.totalYield} tons | Allocations: [$allocationsStr]";
-    }).join("\n");
+    final recentTurnoversSummary = matchedTurnovers.isNotEmpty
+        ? matchedTurnovers.map((t) => "Date: ${t.date} | Grape Type: ${t.grapeType} | Total Yield: ${t.totalYield} tons | Allocations: [${t.allocations.map((a) => "Dest: ${a.destinationName} (Qty: ${a.quantitySent} tons, Vehicle: ${a.vehicleNumberPlate})").join(", ")}]").join("\n")
+        : (turnovers.take(5).map((t) => "Date: ${t.date} | Grape Type: ${t.grapeType} | Total Yield: ${t.totalYield} tons | Allocations: [${t.allocations.map((a) => "Dest: ${a.destinationName} (Qty: ${a.quantitySent} tons, Vehicle: ${a.vehicleNumberPlate})").join(", ")}]").join("\n"));
 
     try {
       final replyText = await GeminiService.getChatResponse(
@@ -209,6 +282,9 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
   // Speech input trigger
   void _triggerVoiceInput() async {
+    _silenceTimer?.cancel();
+    await _flutterTts.stop(); // Interruption support!
+
     if (_isTranscribing) return;
 
     final speechService = Provider.of<SpeechService>(context, listen: false);
@@ -234,7 +310,8 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       }
     } else {
       _micPulseController.repeat(reverse: true);
-      
+      _voiceModeActive = true; // Turn voice conversation mode ON
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -245,7 +322,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
                 Text(langCode == 'kn-IN' ? "ಧ್ವನಿ ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಲಾಗಿದೆ. ನಿಲ್ಲಿಸಲು ಮೈಕ್ ಟ್ಯಾಪ್ ಮಾಡಿ." : "Voice recording started. Tap mic again to stop & process."),
               ],
             ),
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -263,6 +340,13 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
           _micPulseController.stop();
         },
       );
+
+      // Automatic timeout submission after 8 seconds of speaking/silence for hands-free voice loop
+      _silenceTimer = Timer(const Duration(seconds: 8), () {
+        if (mounted && speechService.isListening && _voiceModeActive) {
+          _triggerVoiceInput(); // Auto stop & transcribe
+        }
+      });
     }
   }
 
