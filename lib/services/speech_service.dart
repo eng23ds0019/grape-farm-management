@@ -41,7 +41,21 @@ class SpeechService extends ChangeNotifier {
         status = await Permission.microphone.request();
       }
 
-      _isAvailable = false; // Always use high-accuracy Gemini transcription instead of native STT
+      if (status.isGranted) {
+        // Initialize native speech to text engine with fallback safety
+        try {
+          _isAvailable = await _speech.initialize(
+            onError: (val) => debugPrint("SpeechService: Native STT error $val"),
+            onStatus: (val) => debugPrint("SpeechService: Native STT status $val"),
+          );
+        } catch (e_init) {
+          debugPrint("SpeechService: Native STT initialize exception: $e_init");
+          _isAvailable = false;
+        }
+        debugPrint("SpeechService: Native STT initialization status: $_isAvailable");
+      } else {
+        _isAvailable = false;
+      }
       return status.isGranted;
     } catch (e) {
       _isAvailable = false;
@@ -90,22 +104,41 @@ class SpeechService extends ChangeNotifier {
     _recordAudioActive = false;
     notifyListeners();
 
-    await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(
-        localeId: languageCode,
-        partialResults: true,
-      ),
-      onResult: (result) {
-        _lastWords = result.recognizedWords;
-        _confidence = result.confidence;
-        notifyListeners();
-        onResult(_lastWords, _confidence);
-        if (result.finalResult) {
-          _isListening = false;
+    // Map locale identifier (e.g. kn-IN -> kn_IN)
+    final formattedLocale = languageCode.replaceAll('-', '_');
+
+    try {
+      await _speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: formattedLocale,
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: stt.ListenMode.dictation,
+        ),
+        onResult: (result) {
+          _lastWords = result.recognizedWords;
+          _confidence = result.confidence;
           notifyListeners();
-        }
-      },
-    );
+          onResult(_lastWords, _confidence);
+          if (result.finalResult) {
+            _isListening = false;
+            notifyListeners();
+          }
+        },
+      );
+    } catch (e_listen) {
+      debugPrint("SpeechService: Native listen failed: $e_listen. Falling back to recording.");
+      _isAvailable = false;
+      _isListening = false;
+      notifyListeners();
+      // Retry in fallback mode
+      await startListening(
+        languageCode: languageCode,
+        onResult: onResult,
+        onTimeout: onTimeout,
+        recordAudio: recordAudio,
+      );
+    }
   }
 
   /// Manually stops listening
