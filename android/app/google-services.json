@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "85493391219",
+    "project_id": "draksha-farm-diary",
+    "storage_bucket": "draksha-farm-diary.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:85493391219:android:53f9f91d74a7beb42b2f06",
+        "android_client_info": {
+          "package_name": "com.draksha.farmdiary"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjI0D6aafBBMxvGjguhLE3jTOTmHmyQxw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,153 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
+import 'gemini_service.dart';
+import 'openai_service.dart';
+
+class SpeechService extends ChangeNotifier {
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  
+  bool _isAvailable = false;
+  bool _isListening = false;
+  String _lastWords = "";
+  double _confidence = 1.0;
+  
+  String? _recordingPath;
+  bool _recordAudioActive = false;
+  Function(String text, double confidence)? _activeOnResult;
+  String? _currentLanguageCode;
+
+  bool get isListening => _isListening;
+  String get lastWords => _lastWords;
+  double get confidence => _confidence;
+
+  /// Initializes speech recognition
+  Future<bool> initSpeech() async {
+    try {
+      if (kIsWeb) {
+        _isAvailable = false;
+        return false;
+      }
+      
+      // Request mic permission
+      var status = await Permission.microphone.status;
+      if (!status.isGranted) {
+        status = await Permission.microphone.request();
+      }
+
+      _isAvailable = false; // Always use high-accuracy Gemini transcription instead of native STT
+      return status.isGranted;
+    } catch (e) {
+      _isAvailable = false;
+      return false;
+    }
+  }
+
+  /// Starts listening for speech in preferred language
+  Future<void> startListening({
+    required String languageCode,
+    required Function(String text, double confidence) onResult,
+    required Function() onTimeout,
+    bool recordAudio = true,
+  }) async {
+    _lastWords = "";
+    _activeOnResult = onResult;
+    _currentLanguageCode = languageCode;
+    notifyListeners();
+
+    if (!_isAvailable) {
+      _isListening = true;
+      notifyListeners();
+
+      if (recordAudio) {
+        try {
+          if (await _audioRecorder.hasPermission()) {
+            final directory = await getTemporaryDirectory();
+            _recordingPath = '${directory.path}/speech_temp_${const Uuid().v4()}.m4a';
+            
+            await _audioRecorder.start(
+              const RecordConfig(encoder: AudioEncoder.aacLc),
+              path: _recordingPath!,
+            );
+            _recordAudioActive = true;
+            debugPrint("SpeechService: Started recording for Gemini transcription at $_recordingPath");
+          }
+        } catch (e) {
+          debugPrint("SpeechService: Failed to start audio recording: $e");
+          _recordAudioActive = false;
+        }
+      }
+      return;
+    }
+
+    _isListening = true;
+    _recordAudioActive = false;
+    notifyListeners();
+
+    await _speech.listen(
+      listenOptions: stt.SpeechListenOptions(
+        localeId: languageCode,
+        partialResults: true,
+      ),
+      onResult: (result) {
+        _lastWords = result.recognizedWords;
+        _confidence = result.confidence;
+        notifyListeners();
+        onResult(_lastWords, _confidence);
+        if (result.finalResult) {
+          _isListening = false;
+          notifyListeners();
+        }
+      },
+    );
+  }
+
+  /// Manually stops listening
+  Future<void> stopListening() async {
+    if (_isListening) {
+      if (_recordAudioActive && _recordingPath != null) {
+        try {
+          final path = await _audioRecorder.stop();
+          _recordAudioActive = false;
+          
+          if (path != null) {
+            debugPrint("SpeechService: Stopped recording. Transcribing file: $path");
+            final text = await OpenAiService.transcribeAudio(path, languageCode: _currentLanguageCode);
+            if (text.isNotEmpty) {
+              _lastWords = text;
+              _confidence = 0.99;
+              notifyListeners();
+              if (_activeOnResult != null) {
+                _activeOnResult!(_lastWords, _confidence);
+              }
+            }
+            // Clean up temp file
+            final file = File(path);
+            if (await file.exists()) {
+              await file.delete();
+            }
+          }
+        } catch (e) {
+          debugPrint("SpeechService: Error stopping recording or transcribing: $e");
+        }
+      } else if (_isAvailable) {
+        await _speech.stop();
+      }
+
+      _isListening = false;
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioRecorder.dispose();
+    super.dispose();
+  }
+}
