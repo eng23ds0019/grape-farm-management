@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -475,29 +476,6 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
           ],
         ),
         actions: [
-          // Voice Conversation Mode toggle (headset icon)
-          IconButton(
-            icon: Icon(
-              _voiceModeActive ? Icons.headset : Icons.headset_off,
-              color: _voiceModeActive ? AppColors.softYellow : AppColors.white.withOpacity(0.6),
-            ),
-            tooltip: "Voice Conversation Mode",
-            onPressed: () {
-              setState(() {
-                _voiceModeActive = !_voiceModeActive;
-              });
-              if (_voiceModeActive) {
-                _triggerVoiceInput();
-              } else {
-                _flutterTts.stop();
-                _silenceTimer?.cancel();
-                final speechService = Provider.of<SpeechService>(context, listen: false);
-                if (speechService.isListening) {
-                  speechService.stopListening();
-                }
-              }
-            },
-          ),
           // TTS Mute toggle (volume icon)
           IconButton(
             icon: Icon(
@@ -517,201 +495,224 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         ],
       ),
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            if (_voiceModeActive)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                color: AppColors.primaryGreen.withOpacity(0.15),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.record_voice_over, color: AppColors.primaryGreen, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      langCode == 'kn-IN'
-                          ? "ಧ್ವನಿ ಸಂಭಾಷಣೆ ಸಕ್ರಿಯವಾಗಿದೆ..."
-                          : (langCode == 'hi-IN' ? "आवाज बातचीत सक्रिय है..." : "Voice Conversation Mode Active..."),
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryGreen),
-                    ),
-                    const SizedBox(width: 12),
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _voiceModeActive = false;
-                          _flutterTts.stop();
-                          _silenceTimer?.cancel();
-                          Provider.of<SpeechService>(context, listen: false).stopListening();
-                        });
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.errorRed,
-                          borderRadius: BorderRadius.circular(4),
+            Column(
+              children: [
+                if (_voiceModeActive)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                    color: AppColors.primaryGreen.withOpacity(0.15),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.record_voice_over, color: AppColors.primaryGreen, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          langCode == 'kn-IN'
+                              ? "ಧ್ವನಿ ಸಂಭಾಷಣೆ ಸಕ್ರಿಯವಾಗಿದೆ..."
+                              : (langCode == 'hi-IN' ? "आवाज बातचीत सक्रिय है..." : "Voice Conversation Mode Active..."),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryGreen),
                         ),
-                        child: const Text("EXIT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _voiceModeActive = false;
+                              _flutterTts.stop();
+                              _silenceTimer?.cancel();
+                              Provider.of<SpeechService>(context, listen: false).stopListening();
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.errorRed,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text("EXIT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                // Chat messages list
+                Expanded(
+                  child: _messages.isEmpty
+                      ? Center(
+                          child: CircularProgressIndicator(color: AppColors.accentPurple),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16.0),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _messages[index];
+                            return _buildChatBubble(msg, langCode);
+                          },
+                        ),
+                ),
+
+                if (_isTyping)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        children: [
+                          const CircleAvatar(
+                            radius: 12,
+                            backgroundColor: AppColors.primaryLight,
+                            child: Icon(Icons.psychology, size: 14, color: AppColors.primaryGreen),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            langCode == 'kn-IN' ? "ದ್ರಾಕ್ಷಾ AI ಆಲೋಚಿಸುತ್ತಿದೆ..." : (langCode == 'hi-IN' ? "द्राक्षा AI सोच रहा है..." : "Draksha AI is thinking..."),
+                            style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.textLight),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            // Chat messages list
-            Expanded(
-              child: _messages.isEmpty
-                  ? Center(
-                      child: CircularProgressIndicator(color: AppColors.accentPurple),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(16.0),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        final msg = _messages[index];
-                        return _buildChatBubble(msg, langCode);
+                  ),
+
+                // Horizontal contextual chips
+                if (suggestions.isNotEmpty)
+                  Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: suggestions.length,
+                      itemBuilder: (context, idx) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+                          child: ActionChip(
+                            label: Text(
+                              suggestions[idx],
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.accentPurple),
+                            ),
+                            backgroundColor: AppColors.primaryLight.withOpacity(0.6),
+                            side: BorderSide(color: AppColors.accentPurple.withOpacity(0.2)),
+                            onPressed: () => _handleMessageSubmit(suggestions[idx]),
+                          ),
+                        );
                       },
                     ),
-            ),
+                  ),
 
-            if (_isTyping)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
+                // Chat input bar
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.shadowColor.withOpacity(0.05),
+                        spreadRadius: 2,
+                        blurRadius: 10,
+                        offset: const Offset(0, -3),
+                      )
+                    ],
+                  ),
                   child: Row(
                     children: [
-                      const CircleAvatar(
-                        radius: 12,
-                        backgroundColor: AppColors.primaryLight,
-                        child: Icon(Icons.psychology, size: 14, color: AppColors.primaryGreen),
+                      // Floating microphone button with custom scaling animation
+                      AnimatedBuilder(
+                        animation: _micPulseController,
+                        builder: (context, child) {
+                          final speechService = Provider.of<SpeechService>(context);
+                          final isListening = speechService.isListening;
+                          return Transform.scale(
+                            scale: isListening ? _micPulseController.value : 1.0,
+                            child: CircleAvatar(
+                              radius: 22,
+                              backgroundColor: _isTranscribing
+                                  ? Colors.grey
+                                  : (isListening ? AppColors.errorRed : AppColors.primaryGreen),
+                              child: _isTranscribing
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                  : IconButton(
+                                      icon: Icon(isListening ? Icons.mic_off : Icons.mic, color: AppColors.white),
+                                      onPressed: _triggerVoiceInput,
+                                    ),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        langCode == 'kn-IN' ? "ದ್ರಾಕ್ಷಾ AI ಆಲೋಚಿಸುತ್ತಿದೆ..." : (langCode == 'hi-IN' ? "द्राक्षा AI सोच रहा है..." : "Draksha AI is thinking..."),
-                        style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.textLight),
+
+                      // Dedicated Voice Conversation button (ChatGPT Style waveform representation)
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: AppColors.accentPurple,
+                        child: IconButton(
+                          icon: const Icon(Icons.graphic_eq, color: AppColors.white),
+                          tooltip: "Start Voice Conversation",
+                          onPressed: () {
+                            setState(() {
+                              _voiceModeActive = true;
+                            });
+                            _triggerVoiceInput();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+
+                      // Text input
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.warmCream.withOpacity(0.6),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: AppColors.borderLight),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TextField(
+                            controller: _inputController,
+                            enabled: !_isTranscribing,
+                            style: const TextStyle(fontSize: 14, color: AppColors.textDark, fontWeight: FontWeight.w500),
+                            decoration: InputDecoration(
+                              hintText: _isTranscribing
+                                  ? (langCode == 'kn-IN' ? "ಧ್ವನಿಯನ್ನು ಪರಿವರ್ತಿಸಲಾಗುತ್ತಿದೆ..." : "Transcribing speech...")
+                                  : AppTranslations.translate('chat_hint', langCode),
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(
+                                color: _isTranscribing ? AppColors.accentPurple : AppColors.textLight,
+                                fontSize: 13,
+                                fontStyle: _isTranscribing ? FontStyle.italic : FontStyle.normal,
+                              ),
+                            ),
+                            onSubmitted: _handleMessageSubmit,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Send button
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: AppColors.accentPurple,
+                        child: IconButton(
+                          icon: const Icon(Icons.send, color: AppColors.white, size: 18),
+                          onPressed: () => _handleMessageSubmit(_inputController.text),
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
-
-            // Horizontal contextual chips
-            if (suggestions.isNotEmpty)
-              Container(
-                height: 48,
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: suggestions.length,
-                  itemBuilder: (context, idx) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: ActionChip(
-                        label: Text(
-                          suggestions[idx],
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.accentPurple),
-                        ),
-                        backgroundColor: AppColors.primaryLight.withOpacity(0.6),
-                        side: BorderSide(color: AppColors.accentPurple.withOpacity(0.2)),
-                        onPressed: () => _handleMessageSubmit(suggestions[idx]),
-                      ),
-                    );
-                  },
-                ),
-              ),
-
-            // Chat input bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.shadowColor.withOpacity(0.05),
-                    spreadRadius: 2,
-                    blurRadius: 10,
-                    offset: const Offset(0, -3),
-                  )
-                ],
-              ),
-              child: Row(
-                children: [
-                  // Floating microphone button with custom scaling animation
-                  AnimatedBuilder(
-                    animation: _micPulseController,
-                    builder: (context, child) {
-                      final speechService = Provider.of<SpeechService>(context);
-                      final isListening = speechService.isListening;
-                      return Transform.scale(
-                        scale: isListening ? _micPulseController.value : 1.0,
-                        child: CircleAvatar(
-                          radius: 22,
-                          backgroundColor: _isTranscribing
-                              ? Colors.grey
-                              : (isListening ? AppColors.errorRed : AppColors.primaryGreen),
-                          child: _isTranscribing
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
-                                )
-                              : IconButton(
-                                  icon: Icon(isListening ? Icons.mic_off : Icons.mic, color: AppColors.white),
-                                  onPressed: _triggerVoiceInput,
-                                ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 10),
-
-                  // Text input
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.warmCream.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: AppColors.borderLight),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        controller: _inputController,
-                        enabled: !_isTranscribing,
-                        style: const TextStyle(fontSize: 14, color: AppColors.textDark, fontWeight: FontWeight.w500),
-                        decoration: InputDecoration(
-                          hintText: _isTranscribing
-                              ? (langCode == 'kn-IN' ? "ಧ್ವನಿಯನ್ನು ಪರಿವರ್ತಿಸಲಾಗುತ್ತಿದೆ..." : "Transcribing speech...")
-                              : AppTranslations.translate('chat_hint', langCode),
-                          border: InputBorder.none,
-                          hintStyle: TextStyle(
-                            color: _isTranscribing ? AppColors.accentPurple : AppColors.textLight,
-                            fontSize: 13,
-                            fontStyle: _isTranscribing ? FontStyle.italic : FontStyle.normal,
-                          ),
-                        ),
-                        onSubmitted: _handleMessageSubmit,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // Send button
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: AppColors.accentPurple,
-                    child: IconButton(
-                      icon: const Icon(Icons.send, color: AppColors.white, size: 18),
-                      onPressed: () => _handleMessageSubmit(_inputController.text),
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
+            if (_voiceModeActive)
+              _buildVoiceOverlay(langCode),
           ],
         ),
       ),
@@ -1198,6 +1199,185 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         text: confidenceBadge + "I am your Draksha Farm AI advisor. I can answer questions about Downy Mildew prevention, GA3 thinning, pruning dates, and list your entire spraying and cost history logs. Try asking 'When did I spray last?'",
       );
     }
+  }
+
+  Widget _buildVoiceOverlay(String langCode) {
+    final speechService = Provider.of<SpeechService>(context);
+    final isListening = speechService.isListening;
+    
+    String statusText = "Draksha AI";
+    Color statusColor = AppColors.primaryGreen;
+    if (_isTyping) {
+      statusText = langCode == 'kn-IN' ? "ದ್ರಾಕ್ಷಾ AI ಆಲೋಚಿಸುತ್ತಿದೆ..." : (langCode == 'hi-IN' ? "द्राक्षा AI सोच रहा है..." : "Draksha AI is thinking...");
+      statusColor = AppColors.accentPurple;
+    } else if (isListening) {
+      statusText = langCode == 'kn-IN' ? "ದ್ರಾಕ್ಷಾ AI ಕೇಳುತ್ತಿರುವುದು..." : (langCode == 'hi-IN' ? "द्राक्षा AI सुन रहा है..." : "Draksha AI is listening...");
+      statusColor = AppColors.errorRed;
+    } else {
+      statusText = langCode == 'kn-IN' ? "ದ್ರಾಕ್ಷಾ AI ಮಾತನಾಡುತ್ತಿದೆ..." : (langCode == 'hi-IN' ? "द्राक्षा AI बोल रहा है..." : "Draksha AI is speaking...");
+      statusColor = AppColors.primaryGreen;
+    }
+
+    return Positioned.fill(
+      child: Container(
+        color: AppColors.textDark.withOpacity(0.95), // dark backdrop like ChatGPT voice mode
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.only(top: 60.0, left: 24, right: 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Draksha AI Voice",
+                      style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      icon: Icon(_isMuted ? Icons.volume_off : Icons.volume_up, color: Colors.white.withOpacity(0.8)),
+                      onPressed: () {
+                        setState(() {
+                          _isMuted = !_isMuted;
+                        });
+                        if (_isMuted) {
+                          _flutterTts.stop();
+                        }
+                      },
+                    )
+                  ],
+                ),
+              ),
+
+              // Animated Orb & Waves
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Soundwave concentric circles
+                        _buildWaveCircle(1.5, statusColor.withOpacity(0.15)),
+                        _buildWaveCircle(1.3, statusColor.withOpacity(0.25)),
+                        _buildWaveCircle(1.1, statusColor.withOpacity(0.35)),
+                        
+                        // Center Orb
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                statusColor,
+                                statusColor.withOpacity(0.7),
+                                statusColor.withOpacity(0.3),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: statusColor.withOpacity(0.6),
+                                blurRadius: 30,
+                                spreadRadius: 5,
+                              )
+                            ]
+                          ),
+                          child: Icon(
+                            isListening ? Icons.mic : (_isTyping ? Icons.hourglass_empty : Icons.record_voice_over),
+                            color: Colors.white,
+                            size: 40,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                    Text(
+                      statusText,
+                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isListening 
+                          ? (langCode == 'kn-IN' ? "ಮಾತನಾಡಿ..." : "Speak now...") 
+                          : (_isTyping ? "" : (langCode == 'kn-IN' ? "ಕೇಳಿಸಿಕೊಳ್ಳಿ..." : "Listening response...")),
+                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Bottom control button
+              Padding(
+                padding: const EdgeInsets.only(bottom: 60.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _voiceModeActive = false;
+                          _flutterTts.stop();
+                          _silenceTimer?.cancel();
+                          speechService.stopListening();
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: AppColors.errorRed,
+                          borderRadius: BorderRadius.circular(30),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.errorRed.withOpacity(0.3),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                              offset: const Offset(0, 4),
+                            )
+                          ]
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.close, color: Colors.white, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              "EXIT VOICE",
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                            )
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWaveCircle(double factor, Color color) {
+    return AnimatedBuilder(
+      animation: _micPulseController,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 1.0 + (_micPulseController.value - 0.9) * factor,
+          child: Container(
+            width: 140,
+            height: 140,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: color, width: 2),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
