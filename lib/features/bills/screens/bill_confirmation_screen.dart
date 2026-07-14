@@ -338,6 +338,7 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
               ],
 
               // Store metadata card
+              // Store metadata card
               AppCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -348,36 +349,104 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
                     // Shop Name
                     TextField(
                       controller: _shopNameController,
-                      onChanged: (val) => _shopName = val,
+                      onChanged: (val) {
+                        setState(() {
+                          _shopName = val;
+                        });
+                      },
                       style: const TextStyle(fontWeight: FontWeight.bold),
-                      decoration: const InputDecoration(labelText: "Shop Name", prefixIcon: Icon(Icons.store)),
+                      decoration: InputDecoration(
+                        labelText: "Shop Name",
+                        prefixIcon: Icon(Icons.store, color: (_shopName.trim().isEmpty || _shopName == "General Agro Store") ? Colors.amber.shade800 : null),
+                        filled: (_shopName.trim().isEmpty || _shopName == "General Agro Store"),
+                        fillColor: (_shopName.trim().isEmpty || _shopName == "General Agro Store") ? Colors.amber.shade50.withOpacity(0.3) : null,
+                        enabledBorder: (_shopName.trim().isEmpty || _shopName == "General Agro Store")
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.amber.shade600, width: 1.5),
+                              )
+                            : null,
+                        helperText: (_shopName.trim().isEmpty || _shopName == "General Agro Store") ? "Low confidence: verify detail" : null,
+                        helperStyle: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                     const SizedBox(height: 12),
 
                     // Customer Name
                     TextField(
                       controller: _customerNameController,
-                      onChanged: (val) => _customerName = val,
+                      onChanged: (val) {
+                        setState(() {
+                          _customerName = val;
+                        });
+                      },
                       style: const TextStyle(fontWeight: FontWeight.bold),
-                      decoration: const InputDecoration(labelText: "Customer Name", prefixIcon: Icon(Icons.person)),
+                      decoration: InputDecoration(
+                        labelText: "Customer Name",
+                        prefixIcon: Icon(Icons.person, color: (_customerName.trim().isEmpty || _customerName == "Unknown Customer") ? Colors.amber.shade800 : null),
+                        filled: (_customerName.trim().isEmpty || _customerName == "Unknown Customer"),
+                        fillColor: (_customerName.trim().isEmpty || _customerName == "Unknown Customer") ? Colors.amber.shade50.withOpacity(0.3) : null,
+                        enabledBorder: (_customerName.trim().isEmpty || _customerName == "Unknown Customer")
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.amber.shade600, width: 1.5),
+                              )
+                            : null,
+                        helperText: (_customerName.trim().isEmpty || _customerName == "Unknown Customer") ? "Low confidence: verify detail" : null,
+                        helperStyle: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                     const SizedBox(height: 12),
 
                     // Date
                     TextField(
                       controller: _billDateController,
-                      onChanged: (val) => _billDate = val,
+                      onChanged: (val) {
+                        setState(() {
+                          _billDate = val;
+                        });
+                      },
                       style: const TextStyle(fontWeight: FontWeight.bold),
-                      decoration: const InputDecoration(labelText: "Billing Date", prefixIcon: Icon(Icons.calendar_today)),
+                      decoration: InputDecoration(
+                        labelText: "Billing Date",
+                        prefixIcon: Icon(Icons.calendar_today, color: _billDate.trim().isEmpty ? Colors.amber.shade800 : null),
+                        filled: _billDate.trim().isEmpty,
+                        fillColor: _billDate.trim().isEmpty ? Colors.amber.shade50.withOpacity(0.3) : null,
+                        enabledBorder: _billDate.trim().isEmpty
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.amber.shade600, width: 1.5),
+                              )
+                            : null,
+                        helperText: _billDate.trim().isEmpty ? "Low confidence: verify detail" : null,
+                        helperStyle: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                     const SizedBox(height: 12),
 
                     // Bill / Invoice Number
                     TextField(
                       controller: _invoiceNumberController,
-                      onChanged: (val) => _invoiceNumber = val,
+                      onChanged: (val) {
+                        setState(() {
+                          _invoiceNumber = val;
+                        });
+                      },
                       style: const TextStyle(fontWeight: FontWeight.bold),
-                      decoration: const InputDecoration(labelText: "Bill / Invoice Number", prefixIcon: Icon(Icons.receipt_long)),
+                      decoration: InputDecoration(
+                        labelText: "Bill / Invoice Number",
+                        prefixIcon: Icon(Icons.receipt_long, color: _invoiceNumber.trim().isEmpty ? Colors.amber.shade800 : null),
+                        filled: _invoiceNumber.trim().isEmpty,
+                        fillColor: _invoiceNumber.trim().isEmpty ? Colors.amber.shade50.withOpacity(0.3) : null,
+                        enabledBorder: _invoiceNumber.trim().isEmpty
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.amber.shade600, width: 1.5),
+                              )
+                            : null,
+                        helperText: _invoiceNumber.trim().isEmpty ? "Low confidence: verify detail" : null,
+                        helperStyle: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ],
                 ),
@@ -416,6 +485,10 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
                       ..._billItems.asMap().entries.map((entry) {
                         int idx = entry.key;
                         BillItem item = entry.value;
+                        final bool isLowConfidenceItem = item.itemName.trim().isEmpty || item.itemName == "Other" || item.itemName == "";
+                        final bool isLowConfidenceQty = item.quantity <= 0.0;
+                        final bool isLowConfidenceAmt = item.amount <= 0.0;
+
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 6.0),
                           child: Row(
@@ -428,17 +501,33 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
                                     TextField(
                                       controller: _itemNameControllers[idx],
                                       onChanged: (val) {
-                                        _billItems[idx] = BillItem(
-                                          itemName: val,
-                                          category: item.category,
-                                          quantity: item.quantity,
-                                          unit: item.unit,
-                                          amount: item.amount,
-                                        );
+                                        setState(() {
+                                          _billItems[idx] = BillItem(
+                                            itemName: val,
+                                            category: item.category,
+                                            quantity: item.quantity,
+                                            unit: item.unit,
+                                            amount: item.amount,
+                                          );
+                                        });
                                       },
-                                      decoration: const InputDecoration(
+                                      decoration: InputDecoration(
                                         hintText: "Item Name",
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        filled: isLowConfidenceItem,
+                                        fillColor: isLowConfidenceItem ? Colors.amber.shade50.withOpacity(0.3) : null,
+                                        enabledBorder: isLowConfidenceItem
+                                            ? OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(8),
+                                                borderSide: BorderSide(color: Colors.amber.shade600, width: 1.2),
+                                              )
+                                            : null,
+                                        focusedBorder: isLowConfidenceItem
+                                            ? OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(8),
+                                                borderSide: BorderSide(color: Colors.amber.shade800, width: 1.5),
+                                              )
+                                            : null,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
@@ -461,21 +550,26 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
                                               controller: _itemQuantityControllers[idx],
                                               keyboardType: TextInputType.number,
                                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryGreen),
-                                              decoration: const InputDecoration(
-                                                contentPadding: EdgeInsets.symmetric(vertical: 0, horizontal: 2),
+                                              decoration: InputDecoration(
+                                                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
                                                 isDense: true,
-                                                border: UnderlineInputBorder(),
+                                                border: const UnderlineInputBorder(),
+                                                focusedBorder: isLowConfidenceQty
+                                                    ? UnderlineInputBorder(borderSide: BorderSide(color: Colors.amber.shade800, width: 1.5))
+                                                    : null,
                                               ),
                                               onChanged: (val) {
                                                 double? valD = double.tryParse(val);
                                                 if (valD != null) {
-                                                  _billItems[idx] = BillItem(
-                                                    itemName: item.itemName,
-                                                    category: item.category,
-                                                    quantity: valD,
-                                                    unit: item.unit,
-                                                    amount: item.amount,
-                                                  );
+                                                  setState(() {
+                                                    _billItems[idx] = BillItem(
+                                                      itemName: item.itemName,
+                                                      category: item.category,
+                                                      quantity: valD,
+                                                      unit: item.unit,
+                                                      amount: item.amount,
+                                                    );
+                                                  });
                                                 }
                                               },
                                             ),
@@ -515,9 +609,23 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
                                       });
                                     }
                                   },
-                                  decoration: const InputDecoration(
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: InputDecoration(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                     prefixText: "₹",
+                                    filled: isLowConfidenceAmt,
+                                    fillColor: isLowConfidenceAmt ? Colors.amber.shade50.withOpacity(0.3) : null,
+                                    enabledBorder: isLowConfidenceAmt
+                                        ? OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(color: Colors.amber.shade600, width: 1.2),
+                                          )
+                                        : null,
+                                    focusedBorder: isLowConfidenceAmt
+                                        ? OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(color: Colors.amber.shade800, width: 1.5),
+                                          )
+                                        : null,
                                   ),
                                 ),
                               ),
