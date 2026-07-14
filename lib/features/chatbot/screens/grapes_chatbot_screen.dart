@@ -126,25 +126,56 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
     return 'en-US';
   }
 
+  String _cleanTextForTts(String text) {
+    // 1. Remove Markdown formatting (asterisks, hashtags, backticks, list markers, etc.)
+    String cleaned = text
+        .replaceAll(RegExp(r'\*\*|__|\*|_|`'), '') // bold/italic/code markers
+        .replaceAll(RegExp(r'#+\s+'), '') // header markers
+        .replaceAll(RegExp(r'-\s+|\*\s+|\d+\.\s+'), ''); // list bullet markers
+
+    // 2. Remove emojis and non-speech symbols
+    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F300}-\u{1F9FF}]|[\u{2700}-\u{27BF}]', unicode: true), '');
+
+    // 3. Remove brackets/parentheses and their content (often contains helper markers or citations)
+    cleaned = cleaned.replaceAll(RegExp(r'\[.*?\]|\(.*?\)'), '');
+
+    // 4. Normalize whitespaces
+    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    return cleaned;
+  }
+
   Future<void> _speak(String text, String langCode) async {
     if (_isMuted) {
       debugPrint("TTS: Muted, skipping speech playback.");
       return;
     }
     try {
+      debugPrint("TTS: Stopping active speech before playing new voice message.");
       await _flutterTts.stop();
-      final ttsLang = _detectLanguageOfText(text);
+
+      // Use the user's selected language as primary, fallback to script detection if needed
+      String ttsLang = langCode;
+      if (ttsLang.isEmpty) {
+        ttsLang = _detectLanguageOfText(text);
+      }
+      debugPrint("TTS: Selected language locale: $ttsLang");
+
       await _flutterTts.setLanguage(ttsLang);
       await _flutterTts.setSpeechRate(ttsLang == 'en-US' ? 0.5 : 0.45);
       await _flutterTts.setVolume(1.0);
       await _flutterTts.setPitch(1.0);
       
-      String spokenText = text;
-      if (text.startsWith("🤖")) {
-        final idx = text.indexOf("\n\n");
-        if (idx != -1 && idx + 2 < text.length) {
-          spokenText = text.substring(idx + 2);
+      // Clean and sanitize text for TTS (remove markdown, emojis, asterisks, brackets, citations)
+      final spokenText = _cleanTextForTts(text);
+      debugPrint("TTS: Final Sanitized Spoken Text: '$spokenText'");
+
+      if (spokenText.trim().isEmpty) {
+        debugPrint("TTS: Spoken text is empty after sanitization. Skipping TTS.");
+        if (_voiceModeActive) {
+          _listenVoiceConversation();
         }
+        return;
       }
 
       // Start safety fallback timer for Voice mode loops!
@@ -152,6 +183,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         _startTtsSafetyTimer(spokenText);
       }
 
+      debugPrint("TTS: Calling _flutterTts.speak().");
       await _flutterTts.speak(spokenText);
     } catch (e) {
       debugPrint("TTS speak failed: $e");
@@ -170,9 +202,11 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
     // Continuous voice mode completion handler
     _flutterTts.setCompletionHandler(() {
+      debugPrint("TTS Completed");
       if (_voiceModeActive && mounted) {
         Future.delayed(const Duration(milliseconds: 600), () {
           if (_voiceModeActive && mounted && !_isTyping && !_isTranscribing) {
+            debugPrint("Listening Restarted");
             _listenVoiceConversation(); // Start recording automatically for next turn
           }
         });
@@ -391,7 +425,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
       await speechService.startListening(
         languageCode: langCode,
-        onResult: (text, confidence) {
+        onResult: (text, confidence, isFinal) {
           if (text.isNotEmpty) {
             setState(() {
               _inputController.text = text;
@@ -408,6 +442,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
   // Voice Conversation Mode triggers (ChatGPT Voice Mode loop)
   void _startVoiceConversation() async {
+    debugPrint("Voice Mode Started");
     _silenceTimer?.cancel();
     _ttsSafetyTimer?.cancel();
     await _flutterTts.stop();
@@ -433,6 +468,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
 
     // Speak greeting out loud, which then fires completion handler to start listening loop
     await _speak(greeting, langCode);
+    debugPrint("Greeting Spoken: '$greeting'");
   }
 
   void _listenVoiceConversation() async {
@@ -452,6 +488,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       });
 
       final text = await speechService.stopListening();
+      debugPrint("Speech Recognized (Stopped). Recognized Text: '$text'");
 
       setState(() {
         _isTranscribing = false;
@@ -462,11 +499,18 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       }
     } else {
       _micPulseController.repeat(reverse: true);
+      debugPrint("Speech Recognition Started");
 
       await speechService.startListening(
         languageCode: langCode,
-        onResult: (text, confidence) {
-          // Do NOT update _inputController.text! Keep text input field untouched!
+        onResult: (text, confidence, isFinal) {
+          if (text.trim().isNotEmpty) {
+            debugPrint("Speech Recognized. Recognized Text: '$text'");
+          }
+          if (isFinal && text.trim().isNotEmpty && _voiceModeActive) {
+            _silenceTimer?.cancel();
+            _handleMessageSubmitInternal(text);
+          }
         },
         onTimeout: () {
           _micPulseController.stop();
@@ -485,6 +529,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
   void _handleMessageSubmitInternal(String text) async {
     if (text.trim().isEmpty) return;
 
+    debugPrint("Request Sent to AI: '$text'");
     _silenceTimer?.cancel();
     await _flutterTts.stop();
 
@@ -565,6 +610,7 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
         recentTurnoversSummary: recentTurnoversSummary.isNotEmpty ? recentTurnoversSummary : "No grape sales/yield records recorded yet.",
       );
 
+      debugPrint("AI Response Received: '$replyText'");
       if (!mounted) return;
 
       final String headerText = langCode == 'kn-IN'
@@ -583,6 +629,8 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
           timestamp: DateTime.now(),
         ));
       });
+      
+      debugPrint("Response Sent to TTS");
       _speak(replyText, langCode);
       _scrollToBottom();
     } catch (e) {
@@ -591,6 +639,20 @@ class _GrapesChatbotScreenState extends State<GrapesChatbotScreen> with SingleTi
       setState(() {
         _isTyping = false;
       });
+      // Inform the user politely and speak the message
+      final errorMsg = langCode == 'kn-IN'
+          ? "ಕ್ಷಮಿಸಿ, ಪ್ರತಿಕ್ರಿಯೆ ಪಡೆಯುವಲ್ಲಿ ದೋಷ ಸಂಭವಿಸಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೊಮ್ಮೆ ಪ್ರಯತ್ನಿಸಿ."
+          : (langCode == 'hi-IN'
+              ? "क्षमा करें, प्रतिक्रिया प्राप्त करने में कोई त्रुटि हुई। कृपया पुन: प्रयास करें।"
+              : "Sorry, I had trouble getting a response. Please try again.");
+      setState(() {
+        _messages.add(ChatMessage(
+          text: errorMsg,
+          isUser: false,
+          timestamp: DateTime.now(),
+        ));
+      });
+      _speak(errorMsg, langCode);
     }
   }
 

@@ -20,7 +20,7 @@ class SpeechService extends ChangeNotifier {
   
   String? _recordingPath;
   bool _recordAudioActive = false;
-  Function(String text, double confidence)? _activeOnResult;
+  Function(String text, double confidence, bool isFinal)? _activeOnResult;
   String? _currentLanguageCode;
 
   bool get isListening => _isListening;
@@ -66,7 +66,7 @@ class SpeechService extends ChangeNotifier {
   /// Starts listening for speech in preferred language
   Future<void> startListening({
     required String languageCode,
-    required Function(String text, double confidence) onResult,
+    required Function(String text, double confidence, bool isFinal) onResult,
     required Function() onTimeout,
     bool recordAudio = true,
   }) async {
@@ -118,12 +118,11 @@ class SpeechService extends ChangeNotifier {
         onResult: (result) {
           _lastWords = result.recognizedWords;
           _confidence = result.confidence;
-          notifyListeners();
-          onResult(_lastWords, _confidence);
           if (result.finalResult) {
             _isListening = false;
-            notifyListeners();
           }
+          notifyListeners();
+          onResult(_lastWords, _confidence, result.finalResult);
         },
       );
     } catch (e_listen) {
@@ -157,7 +156,7 @@ class SpeechService extends ChangeNotifier {
               _confidence = 0.99;
               notifyListeners();
               if (_activeOnResult != null) {
-                _activeOnResult!(_lastWords, _confidence);
+                _activeOnResult!(_lastWords, _confidence, true);
               }
             }
             // Clean up temp file
