@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/localization/language_notifier.dart';
 import '../../../core/localization/translations.dart';
+import '../../../models/bill_extraction_result.dart';
 import '../../../models/bill_model.dart';
 import '../../../models/diary_entry_model.dart';
 import '../../../models/expense_model.dart';
@@ -58,33 +59,75 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
   @override
   void initState() {
     super.initState();
-    final data = widget.args['billData'];
-    _shopName = data['shopName'] ?? "";
-    _gstNumber = data['gstNumber'] ?? "";
-    _customerName = data['customerName'] ?? "";
-    _billDate = data['billDate'] ?? DateTime.now().toIso8601String().substring(0, 10);
-    _invoiceNumber = data['invoiceNumber'] ?? "";
 
-    _shopNameConfidence = double.tryParse(data['shopNameConfidence']?.toString() ?? '1.0') ?? 1.0;
-    _gstNumberConfidence = double.tryParse(data['gstNumberConfidence']?.toString() ?? '1.0') ?? 1.0;
-    _customerNameConfidence = double.tryParse(data['customerNameConfidence']?.toString() ?? '1.0') ?? 1.0;
-    _invoiceNumberConfidence = double.tryParse(data['invoiceNumberConfidence']?.toString() ?? '1.0') ?? 1.0;
-    _billDateConfidence = double.tryParse(data['billDateConfidence']?.toString() ?? '1.0') ?? 1.0;
+    // ── Accept either the new typed BillExtractionResult (from OfflineOcrService)
+    // ── or the legacy billData map (backward compatibility).
+    final BillExtractionResult? typed =
+        widget.args['extractionResult'] as BillExtractionResult?;
 
-    final rawSubtotal = data['subtotal'];
-    _subtotal = rawSubtotal is int ? rawSubtotal.toDouble() : (rawSubtotal is double ? rawSubtotal : 0.0);
-    _subtotalConfidence = double.tryParse(data['subtotalConfidence']?.toString() ?? '1.0') ?? 1.0;
+    if (typed != null) {
+      // ── New typed path ─────────────────────────────────────────────────────
+      _shopName = typed.shopName.value;
+      _shopNameConfidence = typed.shopName.confidence;
 
-    final rawGstAmt = data['gstAmount'];
-    _gstAmount = rawGstAmt is int ? rawGstAmt.toDouble() : (rawGstAmt is double ? rawGstAmt : 0.0);
-    _gstAmountConfidence = double.tryParse(data['gstAmountConfidence']?.toString() ?? '1.0') ?? 1.0;
+      _gstNumber = typed.gstNumber.value;
+      _gstNumberConfidence = typed.gstNumber.confidence;
 
-    final rawAmt = data['totalAmount'];
-    _totalAmount = rawAmt is int ? rawAmt.toDouble() : (rawAmt is double ? rawAmt : 0.0);
-    _totalAmountConfidence = double.tryParse(data['totalAmountConfidence']?.toString() ?? '1.0') ?? 1.0;
+      _customerName = typed.customerName.value;
+      _customerNameConfidence = typed.customerName.confidence;
 
-    final rawItems = data['items'] as List? ?? [];
-    _billItems = rawItems.map((i) => BillItem.fromMap(Map<String, dynamic>.from(i))).toList();
+      _invoiceNumber = typed.invoiceNumber.value;
+      _invoiceNumberConfidence = typed.invoiceNumber.confidence;
+
+      _billDate = typed.invoiceDate.value;
+      _billDateConfidence = typed.invoiceDate.confidence;
+
+      _totalAmount = typed.grandTotal.value;
+      _totalAmountConfidence = typed.grandTotal.confidence;
+
+      // Derive subtotal from item sum; GST = 0 (will be entered manually if needed)
+      _billItems = typed.products.map((p) => BillItem(
+            itemName: p.name.value,
+            category: p.category,
+            quantity: p.quantity.value,
+            unit: p.unit.value,
+            amount: p.amount.value,
+          )).toList();
+
+      _subtotal = _billItems.fold(0.0, (s, i) => s + i.amount);
+      _subtotalConfidence = typed.grandTotal.confidence;
+      _gstAmount = (_totalAmount - _subtotal).clamp(0.0, double.infinity);
+      _gstAmountConfidence = 0.6;
+    } else {
+      // ── Legacy map path (backward compat) ──────────────────────────────────
+      final data = widget.args['billData'] as Map<String, dynamic>? ?? {};
+      _shopName = data['shopName'] ?? '';
+      _gstNumber = data['gstNumber'] ?? '';
+      _customerName = data['customerName'] ?? '';
+      _billDate = data['billDate'] ?? DateTime.now().toIso8601String().substring(0, 10);
+      _invoiceNumber = data['invoiceNumber'] ?? '';
+
+      _shopNameConfidence = double.tryParse(data['shopNameConfidence']?.toString() ?? '1.0') ?? 1.0;
+      _gstNumberConfidence = double.tryParse(data['gstNumberConfidence']?.toString() ?? '1.0') ?? 1.0;
+      _customerNameConfidence = double.tryParse(data['customerNameConfidence']?.toString() ?? '1.0') ?? 1.0;
+      _invoiceNumberConfidence = double.tryParse(data['invoiceNumberConfidence']?.toString() ?? '1.0') ?? 1.0;
+      _billDateConfidence = double.tryParse(data['billDateConfidence']?.toString() ?? '1.0') ?? 1.0;
+
+      final rawSubtotal = data['subtotal'];
+      _subtotal = rawSubtotal is int ? rawSubtotal.toDouble() : (rawSubtotal is double ? rawSubtotal : 0.0);
+      _subtotalConfidence = double.tryParse(data['subtotalConfidence']?.toString() ?? '1.0') ?? 1.0;
+
+      final rawGstAmt = data['gstAmount'];
+      _gstAmount = rawGstAmt is int ? rawGstAmt.toDouble() : (rawGstAmt is double ? rawGstAmt : 0.0);
+      _gstAmountConfidence = double.tryParse(data['gstAmountConfidence']?.toString() ?? '1.0') ?? 1.0;
+
+      final rawAmt = data['totalAmount'];
+      _totalAmount = rawAmt is int ? rawAmt.toDouble() : (rawAmt is double ? rawAmt : 0.0);
+      _totalAmountConfidence = double.tryParse(data['totalAmountConfidence']?.toString() ?? '1.0') ?? 1.0;
+
+      final rawItems = data['items'] as List? ?? [];
+      _billItems = rawItems.map((i) => BillItem.fromMap(Map<String, dynamic>.from(i))).toList();
+    }
 
     _shopNameController = TextEditingController(text: _shopName);
     _gstNumberController = TextEditingController(text: _gstNumber);
@@ -178,27 +221,41 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
     final firestoreService = Provider.of<FirestoreService>(context, listen: false);
     final storageService = Provider.of<StorageService>(context, listen: false);
 
-    final String uid = authService.currentUid ?? "mock_farmer_patil";
-    final String farmId = widget.args['farmId'];
-    final data = widget.args['billData'];
-    final String billId = data['billId'];
+    final String uid = authService.currentUid ?? 'mock_farmer_patil';
+    final String farmId = widget.args['farmId'] as String? ?? '';
 
-    String cloudUrl = "";
-    final File localFile = File(data['billImageUrl']);
-    if (localFile.existsSync()) {
-      try {
-        cloudUrl = await storageService.uploadFile(
-          file: localFile,
-          farmerId: uid,
-          farmId: farmId,
-          category: "bills",
-          entryOrBillId: billId,
-          fileName: "bill_image.jpg",
-        );
-      } catch (e) {
-        cloudUrl = "https://images.unsplash.com/photo-1537084642907-629340c7e09e?w=500";
+    // Resolve billId — from new typed args or legacy map
+    final String billId = (widget.args['billId'] as String?) ??
+        (widget.args['billData'] as Map<String, dynamic>?)?['billId'] as String? ??
+        DateTime.now().millisecondsSinceEpoch.toString();
+
+    // Resolve image path — from new typed args or legacy map
+    final String imagePath = (widget.args['billImagePath'] as String?) ??
+        (widget.args['billData'] as Map<String, dynamic>?)?['billImageUrl'] as String? ??
+        '';
+
+    String cloudUrl = '';
+    if (imagePath.isNotEmpty) {
+      final File localFile = File(imagePath);
+      if (localFile.existsSync()) {
+        try {
+          cloudUrl = await storageService.uploadFile(
+            file: localFile,
+            farmerId: uid,
+            farmId: farmId,
+            category: 'bills',
+            entryOrBillId: billId,
+            fileName: 'bill_image.jpg',
+          );
+        } catch (e) {
+          debugPrint('BillConfirmationScreen: Image upload failed: $e');
+        }
       }
     }
+
+    final String extractedText = (widget.args['extractionResult'] as BillExtractionResult?)
+            ?.buildSummaryText() ??
+        (widget.args['billData'] as Map?)?['extractedText']?.toString() ?? '';
 
     final bill = BillModel(
       billId: billId,
@@ -206,11 +263,11 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
       shopName: _shopName,
       customerName: _customerName,
       invoiceNumber: _invoiceNumber,
-      billImageUrl: cloudUrl.isNotEmpty ? cloudUrl : data['billImageUrl'],
-      extractedText: data['extractedText'],
+      billImageUrl: cloudUrl.isNotEmpty ? cloudUrl : imagePath,
+      extractedText: extractedText,
       items: _billItems,
       totalAmount: _totalAmount,
-      status: "confirmed",
+      status: 'confirmed',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
@@ -253,7 +310,7 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
       languageCode: langCode,
       inputType: "bill",
       cleanedText: cleanSummaryText,
-      photos: [cloudUrl.isNotEmpty ? cloudUrl : data['billImageUrl']],
+      photos: [cloudUrl.isNotEmpty ? cloudUrl : imagePath],
       expenses: formalExpenses,
       structuredData: StructuredData(
         pesticides: formalExpenses.where((e) => e.category == 'Pesticide').map((e) => e.toMap()).toList(),
@@ -291,8 +348,14 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
   @override
   Widget build(BuildContext context) {
     final langCode = Provider.of<LanguageNotifier>(context).currentLanguage;
-    final billImageUrl = widget.args['billData']['billImageUrl'];
-    final rawItemsArg = widget.args['billData']['items'] as List? ?? [];
+    // Resolve image path for the preview — new args or legacy map
+    final billImageUrl = (widget.args['billImagePath'] as String?) ??
+        (widget.args['billData'] as Map?)?['billImageUrl']?.toString() ??
+        '';
+    // For item confidence display — use typed model or legacy list
+    final BillExtractionResult? typedResult =
+        widget.args['extractionResult'] as BillExtractionResult?;
+    final rawItemsArg = (widget.args['billData'] as Map?)?['items'] as List? ?? [];
 
     InputDecoration buildConfDecoration({
       required String label,
@@ -508,7 +571,12 @@ class _BillConfirmationScreenState extends State<BillConfirmationScreen> {
                         double qtyConf = 1.0;
                         double amtConf = 1.0;
 
-                        if (idx < rawItemsArg.length) {
+                        // Prefer typed model confidence, fall back to legacy map
+                        if (typedResult != null && idx < typedResult.products.length) {
+                          nameConf = typedResult.products[idx].name.confidence;
+                          qtyConf = typedResult.products[idx].quantity.confidence;
+                          amtConf = typedResult.products[idx].amount.confidence;
+                        } else if (idx < rawItemsArg.length) {
                           nameConf = double.tryParse(rawItemsArg[idx]['itemNameConfidence']?.toString() ?? '1.0') ?? 1.0;
                           qtyConf = double.tryParse(rawItemsArg[idx]['quantityConfidence']?.toString() ?? '1.0') ?? 1.0;
                           amtConf = double.tryParse(rawItemsArg[idx]['amountConfidence']?.toString() ?? '1.0') ?? 1.0;
