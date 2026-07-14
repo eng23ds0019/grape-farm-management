@@ -148,89 +148,118 @@ class _BillScannerScreenState extends State<BillScannerScreen> with SingleTicker
       }
 
       String shopName = "";
+      double shopNameConfidence = 1.0;
+      String gstNumber = "";
+      double gstNumberConfidence = 1.0;
       String customerName = "";
+      double customerNameConfidence = 1.0;
       String billDate = DateTime.now().toIso8601String().substring(0, 10);
+      double billDateConfidence = 1.0;
+      String invoiceNumber = "";
+      double invoiceNumberConfidence = 1.0;
+
+      double subtotal = 0.0;
+      double subtotalConfidence = 1.0;
+      double gstAmount = 0.0;
+      double gstAmountConfidence = 1.0;
       double totalAmount = 0.0;
+      double totalAmountConfidence = 1.0;
+
       List<Map<String, dynamic>> items = [];
 
       final data = parsedResult['data'] as Map<String, dynamic>;
 
-      shopName = data['shop_name'] ?? "";
-      customerName = data['buyer_name'] ?? "";
-      billDate = data['date'] ?? DateTime.now().toIso8601String().substring(0, 10);
-      final String invoiceNumber = data['invoice_number'] ?? "";
-      
-      final totalStr = data['total_amount'] ?? "0";
-      totalAmount = double.tryParse(totalStr) ?? 0.0;
-      
+      final shopData = data['shop_name'] as Map<String, dynamic>?;
+      final gstData = data['gst_number'] as Map<String, dynamic>?;
+      final buyerData = data['buyer_name'] as Map<String, dynamic>?;
+      final invoiceData = data['invoice_number'] as Map<String, dynamic>?;
+      final dateData = data['date'] as Map<String, dynamic>?;
+
+      shopName = shopData?['value'] ?? "";
+      shopNameConfidence = double.tryParse(shopData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      gstNumber = gstData?['value'] ?? "";
+      gstNumberConfidence = double.tryParse(gstData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      customerName = buyerData?['value'] ?? "";
+      customerNameConfidence = double.tryParse(buyerData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      invoiceNumber = invoiceData?['value'] ?? "";
+      invoiceNumberConfidence = double.tryParse(invoiceData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      billDate = dateData?['value'] ?? DateTime.now().toIso8601String().substring(0, 10);
+      billDateConfidence = double.tryParse(dateData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      final subtotalData = data['subtotal'] as Map<String, dynamic>?;
+      final gstAmtData = data['gst_amount'] as Map<String, dynamic>?;
+      final totalData = data['total_amount'] as Map<String, dynamic>?;
+
+      subtotal = double.tryParse(subtotalData?['value']?.toString() ?? '0.0') ?? 0.0;
+      subtotalConfidence = double.tryParse(subtotalData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      gstAmount = double.tryParse(gstAmtData?['value']?.toString() ?? '0.0') ?? 0.0;
+      gstAmountConfidence = double.tryParse(gstAmtData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
+      totalAmount = double.tryParse(totalData?['value']?.toString() ?? '0.0') ?? 0.0;
+      totalAmountConfidence = double.tryParse(totalData?['confidence']?.toString() ?? '1.0') ?? 1.0;
+
       final rawItems = data['products'] as List? ?? [];
       for (var item in rawItems) {
         if (item is Map) {
-          final name = item['product_name'] ?? '';
+          final nameMap = item['itemName'] as Map? ?? item['product_name'] as Map?;
+          final qtyMap = item['quantity'] as Map?;
+          final unitMap = item['unit'] as Map?;
+          final amtMap = item['amount'] as Map?;
+
+          final String name = nameMap?['value'] ?? "";
           if (name.isEmpty) continue;
 
-          final amtVal = item['amount'];
-          final double itemAmt = double.tryParse(amtVal.toString()) ?? 0.0;
+          final double nameConf = double.tryParse(nameMap?['confidence']?.toString() ?? '1.0') ?? 1.0;
+          final double quantity = double.tryParse(qtyMap?['value']?.toString() ?? '1.0') ?? 1.0;
+          final double qtyConf = double.tryParse(qtyMap?['confidence']?.toString() ?? '1.0') ?? 1.0;
+          final String unit = unitMap?['value'] ?? "bag";
+          final double unitConf = double.tryParse(unitMap?['confidence']?.toString() ?? '1.0') ?? 1.0;
+          final double amount = double.tryParse(amtMap?['value']?.toString() ?? '0.0') ?? 0.0;
+          final double amtConf = double.tryParse(amtMap?['confidence']?.toString() ?? '1.0') ?? 1.0;
 
           final fuzzyMatchedName = BillValidator.fuzzyMatchFertilizer(name);
           final String finalName = fuzzyMatchedName ?? name;
-
           final String finalCategory = fuzzyMatchedName != null ? 'Fertilizer' : 'Pesticide';
-          final qVal = item['quantity'] ?? '1';
-          final double finalQuantity = double.tryParse(qVal.toString()) ?? 1.0;
-          final String finalUnit = finalCategory == 'Fertilizer' ? 'bag' : 'bottle';
-          
-          final rateVal = item['unit_price'];
-          final double finalNetAmt = double.tryParse(rateVal.toString()) ?? itemAmt;
 
           items.add({
             'itemName': finalName,
+            'itemNameConfidence': nameConf,
             'category': finalCategory,
-            'quantity': finalQuantity,
-            'unit': finalUnit,
-            'amount': itemAmt,
+            'quantity': quantity,
+            'quantityConfidence': qtyConf,
+            'unit': unit,
+            'unitConfidence': unitConf,
+            'amount': amount,
+            'amountConfidence': amtConf,
             'hsnCode': '',
-            'netAmount': finalNetAmt,
+            'netAmount': quantity > 0 ? (amount / quantity) : amount,
           });
         }
       }
 
-      // Detect total amount from raw OCR text using regex helper if still 0.0
-      final double? detectedTotal = BillValidator.detectTotalAmount(rawText);
-      if (totalAmount == 0.0 && detectedTotal != null) {
-        totalAmount = detectedTotal;
-      }
-      
-      // Sanity check totalAmount with items sum to prevent OCR rupee-to-2 misreads (e.g. ₹10,500 read as 210,500)
+      // Check sum validation
       final double calculatedItemsSum = items.fold(0.0, (sum, item) => sum + (item['amount'] as double));
-      if (calculatedItemsSum > 0.0) {
-        if (totalAmount == 0.0 || 
-            totalAmount == (calculatedItemsSum + 200000.0) || 
-            totalAmount == (calculatedItemsSum + 20000.0) ||
-            totalAmount == (calculatedItemsSum + 2000.0) ||
-            (totalAmount - calculatedItemsSum).abs() > (calculatedItemsSum * 0.5)) {
-          totalAmount = calculatedItemsSum;
-        }
-      } else {
-        if (totalAmount == 0.0) {
-          totalAmount = calculatedItemsSum;
-        }
+      if (totalAmount == 0.0) {
+        totalAmount = calculatedItemsSum;
       }
 
       // Formulate the strict clean formatting of extracted text (including HSN and Net pricing)
       StringBuffer sb = StringBuffer();
       if (shopName.isNotEmpty) sb.writeln("Shop Name: $shopName");
+      if (gstNumber.isNotEmpty) sb.writeln("GSTIN: $gstNumber");
       if (customerName.isNotEmpty) sb.writeln("Customer Name: $customerName");
       sb.writeln("Date: $billDate");
       sb.writeln("Purchased Items:");
       for (var item in items) {
-        final hsn = item['hsnCode'] ?? '';
-        final net = item['netAmount'] ?? item['amount'];
-        final hsnStr = hsn.isNotEmpty ? " (HSN: $hsn)" : "";
-        final netStr = net != item['amount'] ? " [Net: ₹${(net as double).toStringAsFixed(0)}]" : "";
-        
-        sb.writeln("- ${item['itemName']}$hsnStr = Qty: ${(item['quantity'] as double).toStringAsFixed(0)} ${item['unit']}$netStr, Total: ₹${(item['amount'] as double).toStringAsFixed(0)}");
+        sb.writeln("- ${item['itemName']} = Qty: ${(item['quantity'] as double).toStringAsFixed(0)} ${item['unit']}, Total: ₹${(item['amount'] as double).toStringAsFixed(0)}");
       }
+      sb.writeln("Subtotal: ₹${subtotal.toStringAsFixed(0)}");
+      sb.writeln("GST: ₹${gstAmount.toStringAsFixed(0)}");
       sb.write("Total Bill: ₹${totalAmount.toStringAsFixed(0)}");
       final String cleanSummaryText = sb.toString();
 
@@ -254,11 +283,22 @@ class _BillScannerScreenState extends State<BillScannerScreen> with SingleTicker
           'billData': {
             'billId': const Uuid().v4(),
             'shopName': shopName,
+            'shopNameConfidence': shopNameConfidence,
+            'gstNumber': gstNumber,
+            'gstNumberConfidence': gstNumberConfidence,
             'customerName': customerName,
+            'customerNameConfidence': customerNameConfidence,
             'billDate': billDate,
+            'billDateConfidence': billDateConfidence,
             'invoiceNumber': invoiceNumber,
+            'invoiceNumberConfidence': invoiceNumberConfidence,
             'billImageUrl': imagePath,
+            'subtotal': subtotal,
+            'subtotalConfidence': subtotalConfidence,
+            'gstAmount': gstAmount,
+            'gstAmountConfidence': gstAmountConfidence,
             'totalAmount': totalAmount,
+            'totalAmountConfidence': totalAmountConfidence,
             'extractedText': cleanSummaryText,
             'items': items,
           },

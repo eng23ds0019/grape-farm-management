@@ -295,6 +295,130 @@ class GeminiService {
     return null;
   }
 
+  /// Extracts structured invoice information using layout-aware Document AI.
+  static Future<Map<String, dynamic>?> analyzeFertilizerInvoice(String filePath, String rawOcrText) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      debugPrint("GeminiService: Image file does not exist at $filePath");
+      return null;
+    }
+
+    try {
+      final bytes = await file.readAsBytes();
+      final base64Image = base64Encode(bytes);
+
+      String mimeType = "image/jpeg";
+      final lowerPath = filePath.toLowerCase();
+      if (lowerPath.endsWith(".png")) {
+        mimeType = "image/png";
+      } else if (lowerPath.endsWith(".webp")) {
+        mimeType = "image/webp";
+      }
+
+      final promptText = "You are a production-grade Document AI engine specialized in understanding Indian fertilizer bills.\n"
+          "Analyze the visual layout, bounding alignments, table grids, and nearby label associations of this bill image.\n"
+          "Do NOT guess or search the page randomly. Use invoice layout understanding:\n"
+          "- Shop Name & GST Number: Extract from header/logo section. Identify shop details near the top.\n"
+          "- Customer Name: Look near labels like 'Buyer', 'Customer', 'Name', 'Billed To'.\n"
+          "- Invoice Number: Look near labels like 'Inv No', 'Bill No', 'Receipt No', 'Sl No'.\n"
+          "- Date: Look near labels like 'Date', 'Dated'.\n"
+          "- Products Table: Locate the itemized purchases table grid. For each row, extract:\n"
+          "  * itemName: clean name of fertilizer or pesticide product (e.g. 'Urea', 'DAP 18:46:0').\n"
+          "  * quantity: numeric quantity.\n"
+          "  * unit: bag, bottle, kg, Litre, packet, etc.\n"
+          "  * amount: final total cost of this item row.\n"
+          "- Totals section: Extract:\n"
+          "  * subtotal (pre-tax sum of items).\n"
+          "  * gstAmount (tax total, if available).\n"
+          "  * totalAmount (final payable grand total).\n\n"
+          "For every field, estimate your legibility/extraction confidence as a double between 0.0 and 1.0 based on visibility, legibility, print quality, and nearby label alignments.\n\n"
+          "Raw OCR Text from MLKit:\n$rawOcrText\n\n"
+          "Return ONLY a JSON object matching this schema:\n"
+          "{\n"
+          "  \"shopName\": {\"value\": \"string or null\", \"confidence\": double},\n"
+          "  \"gstNumber\": {\"value\": \"string or null\", \"confidence\": double},\n"
+          "  \"customerName\": {\"value\": \"string or null\", \"confidence\": double},\n"
+          "  \"invoiceNumber\": {\"value\": \"string or null\", \"confidence\": double},\n"
+          "  \"billDate\": {\"value\": \"YYYY-MM-DD or null\", \"confidence\": double},\n"
+          "  \"items\": [\n"
+          "    {\n"
+          "      \"itemName\": {\"value\": \"string\", \"confidence\": double},\n"
+          "      \"quantity\": {\"value\": double, \"confidence\": double},\n"
+          "      \"unit\": {\"value\": \"string\", \"confidence\": double},\n"
+          "      \"amount\": {\"value\": double, \"confidence\": double}\n"
+          "    }\n"
+          "  ],\n"
+          "  \"subtotal\": {\"value\": double, \"confidence\": double},\n"
+          "  \"gstAmount\": {\"value\": double, \"confidence\": double},\n"
+          "  \"totalAmount\": {\"value\": double, \"confidence\": double}\n"
+          "}\n"
+          "Ensure response follows JSON schema exactly. Return ONLY the raw JSON string.";
+
+      final payload = {
+        "contents": [
+          {
+            "parts": [
+              {
+                "inlineData": {
+                  "mimeType": mimeType,
+                  "data": base64Image
+                }
+              },
+              {
+                "text": promptText
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "responseMimeType": "application/json"
+        }
+      };
+
+      final url = Uri.parse(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$geminiApiKey"
+      );
+
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 25);
+      final request = await client.postUrl(url);
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(payload));
+
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final responseBody = await response.transform(utf8.decoder).join();
+        final Map<String, dynamic> json = jsonDecode(responseBody);
+
+        final candidates = json['candidates'] as List?;
+        if (candidates != null && candidates.isNotEmpty) {
+          final content = candidates[0]['content'] as Map?;
+          if (content != null) {
+            final parts = content['parts'] as List?;
+            if (parts != null && parts.isNotEmpty) {
+              var text = parts[0]['text'] as String?;
+              if (text != null) {
+                text = text.trim();
+                if (text.startsWith("```")) {
+                  text = text.replaceAll(RegExp(r'^```json\s*|```$'), '');
+                }
+                text = text.trim();
+                return jsonDecode(text) as Map<String, dynamic>;
+              }
+            }
+          }
+        }
+      } else {
+        final errorResponse = await response.transform(utf8.decoder).join();
+        debugPrint("GeminiService: Fertilizer invoice analysis failed with status ${response.statusCode}: $errorResponse");
+      }
+    } catch (e) {
+      debugPrint("GeminiService: Exception during fertilizer invoice analysis: $e");
+    }
+
+    return null;
+  }
+
   /// Generates a natural, fluent, and personalized chat response for the farmer.
   static Future<String> getChatResponse({
     required String farmerName,
