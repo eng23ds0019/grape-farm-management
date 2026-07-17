@@ -36,8 +36,8 @@ class DrakshaOrchestrator {
       final weather = await WeatherService.getCurrentWeather("Nashik"); // Mocked default
 
       // 3. Send Context to Secure Backend for RAG & Gemini processing
-      // NOTE: Using the local PC IP address for testing on the physical phone
-      final backendUrl = Uri.parse("http://10.199.160.6:8000/api/v1/chat/orchestrate");
+      // NOTE: Connecting to live production backend hosted on Render.com
+      final backendUrl = Uri.parse("https://grape-farm-management.onrender.com/api/v1/chat/orchestrate");
       
       final response = await http.post(
         backendUrl,
