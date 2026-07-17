@@ -50,6 +50,9 @@ class BillModel {
   final String shopName;
   final String customerName; // Added
   final String invoiceNumber; // Added
+  final double taxableAmount; // New totals field
+  final double gstAmount; // New totals field
+  final String gstNumber; // New totals field
   final String billImageUrl;
   final String extractedText;
   final List<BillItem> items;
@@ -64,6 +67,9 @@ class BillModel {
     required this.shopName,
     this.customerName = "Unknown Customer",
     this.invoiceNumber = "",
+    this.taxableAmount = 0.0,
+    this.gstAmount = 0.0,
+    this.gstNumber = "",
     required this.billImageUrl,
     this.extractedText = "",
     required this.items,
@@ -80,6 +86,9 @@ class BillModel {
       'shopName': shopName,
       'customerName': customerName,
       'invoiceNumber': invoiceNumber,
+      'taxableAmount': taxableAmount,
+      'gstAmount': gstAmount,
+      'gstNumber': gstNumber,
       'billImageUrl': billImageUrl,
       'extractedText': extractedText,
       'items': items.map((i) => i.toMap()).toList(),
@@ -97,8 +106,11 @@ class BillModel {
       'shop_name': shopName,
       'customer_name': customerName,
       'invoice_number': invoiceNumber,
+      'gst_number': gstNumber,
       'date': billDate,
       'items': items.map((i) => i.toFirebaseMap()).toList(),
+      'taxable_amount': taxableAmount,
+      'gst_amount': gstAmount,
       'total_amount': totalAmount,
       'created_at': createdAt.toIso8601String(),
     };
@@ -116,6 +128,10 @@ class BillModel {
     final cName = map['customerName'] ?? map['customer_name'] ?? 'Unknown Customer';
     final invNum = map['invoiceNumber'] ?? map['invoice_number'] ?? '';
     final total = map['totalAmount'] ?? map['total_amount'] ?? 0.0;
+    
+    final taxable = map['taxableAmount'] ?? map['taxable_amount'] ?? 0.0;
+    final gst = map['gstAmount'] ?? map['gst_amount'] ?? 0.0;
+    final gstin = map['gstNumber'] ?? map['gst_number'] ?? '';
 
     return BillModel(
       billId: id,
@@ -123,6 +139,9 @@ class BillModel {
       shopName: sName,
       customerName: cName,
       invoiceNumber: invNum,
+      taxableAmount: taxable is int ? taxable.toDouble() : (taxable as num).toDouble(),
+      gstAmount: gst is int ? gst.toDouble() : (gst as num).toDouble(),
+      gstNumber: gstin,
       billImageUrl: map['billImageUrl'] ?? '',
       extractedText: map['extractedText'] ?? '',
       items: parsedItems,
@@ -138,6 +157,9 @@ class BillModel {
     String? shopName,
     String? customerName,
     String? invoiceNumber,
+    double? taxableAmount,
+    double? gstAmount,
+    String? gstNumber,
     String? billImageUrl,
     String? extractedText,
     List<BillItem>? items,
@@ -151,6 +173,9 @@ class BillModel {
       shopName: shopName ?? this.shopName,
       customerName: customerName ?? this.customerName,
       invoiceNumber: invoiceNumber ?? this.invoiceNumber,
+      taxableAmount: taxableAmount ?? this.taxableAmount,
+      gstAmount: gstAmount ?? this.gstAmount,
+      gstNumber: gstNumber ?? this.gstNumber,
       billImageUrl: billImageUrl ?? this.billImageUrl,
       extractedText: extractedText ?? this.extractedText,
       items: items ?? this.items,

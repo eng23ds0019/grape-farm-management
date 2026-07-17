@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/constants.dart';
 import '../../../core/localization/language_notifier.dart';
@@ -26,6 +27,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   late TextEditingController _phoneController;
   late TextEditingController _openAiApiKeyController;
 
+  // Smart Notifications Settings Flags
+  bool _diseaseAlerts = true;
+  bool _weatherAlerts = true;
+  bool _sprayReminders = true;
+  bool _expenseAlerts = true;
+  bool _profitAlerts = true;
+  bool _harvestAlerts = true;
+  bool _aiRecommendations = true;
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +47,76 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     _phoneController = TextEditingController(text: farmer?.phone ?? "");
     _openAiApiKeyController = TextEditingController();
     _loadApiKey();
+    _loadNotificationSettings();
+  }
+
+  void _loadNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _diseaseAlerts = prefs.getBool('ns_diseaseAlerts') ?? true;
+      _weatherAlerts = prefs.getBool('ns_weatherAlerts') ?? true;
+      _sprayReminders = prefs.getBool('ns_sprayReminders') ?? true;
+      _expenseAlerts = prefs.getBool('ns_expenseAlerts') ?? true;
+      _profitAlerts = prefs.getBool('ns_profitAlerts') ?? true;
+      _harvestAlerts = prefs.getBool('ns_harvestAlerts') ?? true;
+      _aiRecommendations = prefs.getBool('ns_aiRecommendations') ?? true;
+    });
+
+    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+    final farmer = firestoreService.cachedFarmer;
+    if (farmer != null && !firestoreService.useMock) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(farmer.farmerId)
+            .collection('settings')
+            .doc('notifications')
+            .get();
+        if (doc.exists) {
+          final data = doc.data()!;
+          setState(() {
+            _diseaseAlerts = data['diseaseAlerts'] ?? _diseaseAlerts;
+            _weatherAlerts = data['weatherAlerts'] ?? _weatherAlerts;
+            _sprayReminders = data['sprayReminders'] ?? _sprayReminders;
+            _expenseAlerts = data['expenseAlerts'] ?? _expenseAlerts;
+            _profitAlerts = data['profitAlerts'] ?? _profitAlerts;
+            _harvestAlerts = data['harvestAlerts'] ?? _harvestAlerts;
+            _aiRecommendations = data['aiRecommendations'] ?? _aiRecommendations;
+          });
+          await prefs.setBool('ns_diseaseAlerts', _diseaseAlerts);
+          await prefs.setBool('ns_weatherAlerts', _weatherAlerts);
+          await prefs.setBool('ns_sprayReminders', _sprayReminders);
+          await prefs.setBool('ns_expenseAlerts', _expenseAlerts);
+          await prefs.setBool('ns_profitAlerts', _profitAlerts);
+          await prefs.setBool('ns_harvestAlerts', _harvestAlerts);
+          await prefs.setBool('ns_aiRecommendations', _aiRecommendations);
+        }
+      } catch (e) {
+        debugPrint("Error loading notification settings: $e");
+      }
+    }
+  }
+
+  Future<void> _updateNotificationSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('ns_$key', value);
+
+    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+    final farmer = firestoreService.cachedFarmer;
+    if (farmer != null && !firestoreService.useMock) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(farmer.farmerId)
+            .collection('settings')
+            .doc('notifications')
+            .set({
+          key: value,
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint("Error saving notification setting: $e");
+      }
+    }
   }
 
   void _loadApiKey() async {
@@ -212,6 +292,51 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         ),
                       ],
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Smart Notifications Settings
+              AppCard(
+                color: AppColors.white,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Smart Notifications Settings",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.earthyBrown),
+                    ),
+                    const Divider(height: 16),
+                    _buildSwitchTile("Disease Alerts", "Receive warnings about Downy/Powdery Mildew outbreaks.", _diseaseAlerts, (val) {
+                      setState(() => _diseaseAlerts = val);
+                      _updateNotificationSetting('diseaseAlerts', val);
+                    }),
+                    _buildSwitchTile("Weather Warnings", "Rain forecast timing alerts for spray schedules.", _weatherAlerts, (val) {
+                      setState(() => _weatherAlerts = val);
+                      _updateNotificationSetting('weatherAlerts', val);
+                    }),
+                    _buildSwitchTile("Overdue Spray Reminders", "Get notified when a chemical was sprayed >10 days ago.", _sprayReminders, (val) {
+                      setState(() => _sprayReminders = val);
+                      _updateNotificationSetting('sprayReminders', val);
+                    }),
+                    _buildSwitchTile("Expense Alerts", "Warnings on cost trends and budget overruns.", _expenseAlerts, (val) {
+                      setState(() => _expenseAlerts = val);
+                      _updateNotificationSetting('expenseAlerts', val);
+                    }),
+                    _buildSwitchTile("Profit Insights", "Predictive profit estimation increases.", _profitAlerts, (val) {
+                      setState(() => _profitAlerts = val);
+                      _updateNotificationSetting('profitAlerts', val);
+                    }),
+                    _buildSwitchTile("Harvest Alerts", "Crop staging advisory alerts.", _harvestAlerts, (val) {
+                      setState(() => _harvestAlerts = val);
+                      _updateNotificationSetting('harvestAlerts', val);
+                    }),
+                    _buildSwitchTile("AI Pathologist Recommendations", "Daily treatment chemistry dose advice.", _aiRecommendations, (val) {
+                      setState(() => _aiRecommendations = val);
+                      _updateNotificationSetting('aiRecommendations', val);
+                    }),
                   ],
                 ),
               ),
@@ -505,5 +630,21 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         Navigator.pushReplacementNamed(context, '/'); // Reset back to Splash
       }
     }
+  }
+
+  Widget _buildSwitchTile(String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
+    return Column(
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          activeColor: AppColors.primaryGreen,
+          title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+          subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
+          value: value,
+          onChanged: onChanged,
+        ),
+        const Divider(height: 8, thickness: 0.5),
+      ],
+    );
   }
 }

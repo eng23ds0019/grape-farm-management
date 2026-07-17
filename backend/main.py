@@ -222,72 +222,32 @@ async def reset_password(payload: ResetPasswordRequest, authorization: str = Hea
             detail=f"Verification or password update failed: {str(e)}"
         )
 
-class ChatRequest(BaseModel):
+from services.orchestrator import DrakshaOrchestratorService
+
+class VoiceQueryRequest(BaseModel):
+    uid: str
     query: str
-    farm_context: str
     weather_context: str
 
 @app.post("/api/v1/chat/orchestrate")
-async def orchestrate_chat(request: ChatRequest):
+async def orchestrate_voice(request: VoiceQueryRequest):
+    """
+    Draksha AI Production Voice Engine Endpoint
+    """
     try:
-        # 1. Search Vector DB (Pinecone) securely from backend
-        knowledge_context = ""
-        try:
-            import requests
-            headers = {"Api-Key": PINECONE_API_KEY, "Content-Type": "application/json"}
-            payload = {"vector": [0.01] * 768, "topK": 3, "includeMetadata": True} # Mock embedding
-            resp = requests.post(f"{PINECONE_INDEX_URL}/query", json=payload, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                matches = resp.json().get('matches', [])
-                knowledge_context = "\n\n".join([m['metadata'].get('text', '') for m in matches])
-        except Exception as e:
-            print(f"Vector DB fallback triggered: {e}")
-            knowledge_context = "[KNOWLEDGE: General Grape Farming] Grapevines require careful canopy management, timely irrigation, and strict adherence to spray schedules."
-
-        # 2. Build the secure prompt
-        prompt = f"""
-        You are an expert Grape Farming AI Agent in India. Answer in the same language as the user's query (e.g. Kannada, English, Hindi).
-        
-        USER QUERY: {request.query}
-        
-        --- CONTEXT ---
-        Farm State: {request.farm_context}
-        Weather: {request.weather_context}
-        Knowledge: {knowledge_context}
-        
-        --- FALLBACK INSTRUCTION ---
-        If you genuinely do not know the answer based on the knowledge base or farm history, you MUST reply gracefully by saying something like: "I only know about your farm and grape cultivation right now. I don't have the answer to that, but I will improve to give the answer in the future." Do NOT hallucinate answers.
-
-        Return ONLY this JSON:
-        {{
-          "response": "Your natural conversational response answering the query. Be concise and expert.",
-          "diseaseRisk": "High" | "Medium" | "Low",
-          "diseaseName": "Name of disease" | "None",
-          "recommendedSpray": "Fungicide name or None"
-        }}
-        """
-
-        # 3. Call Gemini securely
-        response = model.generate_content(prompt)
-        raw_text = response.text.strip()
-        
-        # Remove potential markdown wrappers
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
-            
-        result = json.loads(raw_text)
+        result = DrakshaOrchestratorService.process_voice_query(
+            uid=request.uid,
+            query=request.query,
+            weather_context=request.weather_context
+        )
         return result
         
     except Exception as e:
-        print(f"Orchestration Error: {e}")
-        return {
-            "response": "I could not reach the reasoning engine. Please check your backend connection.",
-            "diseaseRisk": "Unknown",
-            "diseaseName": "Unknown",
-            "recommendedSpray": "Unknown"
-        }
+        print(f"Server Orchestration Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error processing AI voice engine request."
+        )
 
 if __name__ == "__main__":
     import uvicorn

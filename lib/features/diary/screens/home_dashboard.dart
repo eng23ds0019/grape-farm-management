@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/localization/language_notifier.dart';
 import '../../../core/localization/translations.dart';
 import '../../../services/firestore_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../../widgets/app_card.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../models/diary_entry_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // Import features to embed inside bottom navigation tabs
 import 'diary_history_screen.dart';
@@ -26,6 +30,16 @@ class _HomeDashboardState extends State<HomeDashboard> {
   int _currentTab = 0;
   String _selectedFarmId = "plot_1";
   DateTime? _lastPressedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(seconds: 5), () {
+        _triggerTestNotification();
+      });
+    });
+  }
 
   Future<void> _handleBackPress(bool didPop) async {
     if (didPop) return;
@@ -244,6 +258,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
               ),
             ),
             const SizedBox(height: 24),
+
+            // Disease Outbreak Advisory Alert Stream
+            _buildDiseaseAlertAdvisory(langCode, firestoreService),
 
             // Draksha AI Banner
             AppCard(
@@ -481,5 +498,164 @@ class _HomeDashboardState extends State<HomeDashboard> {
         ),
       ),
     );
+  }
+
+  Widget _buildDiseaseAlertAdvisory(String langCode, FirestoreService firestoreService) {
+    final uid = firestoreService.cachedFarmer?.farmerId ?? "mock_farmer";
+    
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('alerts')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final doc = snapshot.data!.docs.first;
+        final data = doc.data() as Map<String, dynamic>;
+        final String disease = data['disease'] ?? 'Unknown';
+        final String riskLevel = data['riskLevel'] ?? 'Low';
+        final String recommended = data['recommendedSpray'] ?? 'None';
+        final String explanation = data['explanation'] ?? '';
+
+        final isHigh = riskLevel.toLowerCase() == 'high';
+        final Color cardColor = isHigh ? AppColors.errorRed.withOpacity(0.08) : AppColors.softYellow.withOpacity(0.15);
+        final Color borderColor = isHigh ? AppColors.errorRed.withOpacity(0.3) : AppColors.softYellow.withOpacity(0.5);
+        final Color textColor = isHigh ? AppColors.errorRed : AppColors.earthyBrown;
+        final IconData icon = isHigh ? Icons.warning_amber_rounded : Icons.info_outline;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24.0),
+          child: AppCard(
+            color: cardColor,
+            border: Border.all(color: borderColor, width: 1.5),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, color: textColor, size: 24),
+                    const SizedBox(width: 10),
+                    Text(
+                      langCode == 'kn-IN' ? "⚠️ ರೋಗದ ಎಚ್ಚರಿಕೆ" : (langCode == 'hi-IN' ? "⚠️ बीमारी की चेतावनी" : "⚠️ Disease Alert"),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: Icon(Icons.close, color: textColor.withOpacity(0.6), size: 18),
+                      onPressed: () async {
+                        await doc.reference.delete();
+                      },
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  langCode == 'kn-IN'
+                      ? "ಹೆಚ್ಚಿನ ಅಪಾಯ: $disease ($riskLevel Risk)"
+                      : (langCode == 'hi-IN'
+                          ? "उच्च जोखिम: $disease ($riskLevel Risk)"
+                          : "High Risk of $disease detected in the next 5 days."),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  explanation,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textLight,
+                  ),
+                ),
+                const Divider(height: 20, thickness: 0.5),
+                Row(
+                  children: [
+                    Icon(Icons.healing_outlined, color: textColor, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: const TextStyle(fontSize: 13, color: AppColors.textDark),
+                          children: [
+                            TextSpan(
+                              text: langCode == 'kn-IN' ? "ಶಿಫಾರಸು ಮಾಡಿದ ಔಷಧಿ: " : (langCode == 'hi-IN' ? "अनुशंसित छिड़काव: " : "Recommended Spray: "),
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            TextSpan(
+                              text: recommended,
+                              style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _triggerTestNotification() async {
+    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+    final firebaseUid = FirebaseAuth.instance.currentUser?.uid;
+    final farmerId = firebaseUid ?? firestoreService.cachedFarmer?.farmerId ?? "mock_farmer";
+
+    // Prevent trigger loop
+    final prefs = await SharedPreferences.getInstance();
+    final hasRun = prefs.getBool('test_notification_triggered_v4') ?? false;
+    if (hasRun) return;
+    await prefs.setBool('test_notification_triggered_v4', true);
+
+    debugPrint("AUTO-TEST: Running automatic disease alert trigger simulation...");
+
+    final testEntry = DiaryEntryModel(
+      entryId: "test_auto_alert_${DateTime.now().millisecondsSinceEpoch}",
+      farmerId: farmerId,
+      farmId: _selectedFarmId,
+      date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+      cropStage: "Flowering",
+      workType: "Spraying",
+      languageCode: "en-US",
+      inputType: "text",
+      cleanedText: "I observed Powdery Mildew symptoms on my grape leaves.",
+      originalText: "I observed Powdery Mildew symptoms on my grape leaves.",
+      photos: [],
+      expenses: [],
+      structuredData: StructuredData(
+        pesticides: [],
+        fertilizers: [],
+        labour: {},
+        irrigation: {},
+        expenses: [],
+        observations: ["Powdery Mildew"],
+        followUpActions: [],
+        tags: [],
+      ),
+      totalExpense: 0.0,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      missingFields: [],
+    );
+
+    await firestoreService.saveDiaryEntry(farmerId, _selectedFarmId, testEntry);
+    debugPrint("AUTO-TEST: Diary entry stored. AI advisory analysis triggered successfully.");
   }
 }

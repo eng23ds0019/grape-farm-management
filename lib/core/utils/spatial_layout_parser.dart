@@ -1,22 +1,30 @@
 // lib/core/utils/spatial_layout_parser.dart
 //
-// Spatial Layout Parser — the core intelligence engine of the offline OCR pipeline.
+// Overhauled Spatial Layout Parser — Production-Grade Document AI Parser
 //
-// DESIGN PRINCIPLE:
-// Rather than reading `recognizedText.text` as a flat string, this parser uses
-// ML Kit's TextBlock bounding boxes to understand WHERE each piece of text appears
-// on the document. Fertilizer bills follow a consistent spatial structure:
+// Designed specifically for structured Indian fertilizer & pesticide invoices.
 //
-//   ┌──────────────────────────────┐
-//   │ HEADER ZONE  (top 25%)       │ → Shop Name, GST Number
-//   │ META ZONE    (25%–42%)       │ → Customer Name, Invoice No, Date
-//   │ TABLE ZONE   (42%–82%)       │ → Product rows (name, qty, unit, amount)
-//   │ FOOTER ZONE  (bottom 18%)    │ → Grand Total
-//   └──────────────────────────────┘
-//
-// Column detection for the products table uses X-coordinate clustering to find
-// consistent column anchors (name | qty | unit | amount) without relying solely
-// on regex.
+// ALGORITHM:
+// 1. Line Clustered Reconstruction:
+//    - Groups individual TextLines from ML Kit into horizontal `SpatialLine` groups
+//      if they overlap vertically (tolerance of 50% line height).
+//    - Sorts all TextLines within a `SpatialLine` from left to right (by X coordinate).
+//    - This reconstructs the printed page exactly as read left-to-right, eliminating
+//      failures where ML Kit scans columns out of order.
+// 2. Field Classification:
+//    - Shop Name & GSTIN: Extracted from topmost lines (Header).
+//    - Customer Name: Extracted by matching labels (`Customer`, `Buyer`, `Name`, `Recipient`)
+//      and fetching the remainder of the line, or the line immediately below it.
+//      Avoids `/Recipient` bug by correctly stripping the match prefix.
+//    - Invoice No & Date: Matches nearby label associations.
+// 3. Table Column Parser:
+//    - Scan lines. If they contain agricultural terms (urea, dap, potash, pesticide, crop names)
+//      AND have numbers, they are parsed as product rows.
+//    - Splitting columns horizontally: leftmost is Product Name, rightmost is Row Amount,
+//      middle fields represent Quantity, Unit, and Unit Price.
+// 4. Totals Parser:
+//    - Extracts pre-tax taxable amount (Subtotal), GST taxes, and final Grand Total
+//      by searching for corresponding labels.
 
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -24,73 +32,78 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import '../../models/bill_extraction_result.dart';
 import 'bill_validator.dart';
 
+class SpatialLine {
+  double top;
+  double bottom;
+  final List<TextLine> lines;
+
+  SpatialLine({
+    required this.top,
+    required this.bottom,
+    required this.lines,
+  });
+
+  double get centerY => (top + bottom) / 2.0;
+  double get height => bottom - top;
+
+  void addTextLine(TextLine tl) {
+    final rect = tl.boundingBox;
+    if (rect == null) return;
+    lines.add(tl);
+    top = min(top, rect.top.toDouble());
+    bottom = max(bottom, rect.bottom.toDouble());
+    // Sort horizontally: left-to-right
+    lines.sort((a, b) => (a.boundingBox?.left ?? 0).compareTo(b.boundingBox?.left ?? 0));
+  }
+
+  String get text => lines.map((l) => l.text).join(' ');
+}
+
 class SpatialLayoutParser {
-  // ─── Zone boundaries as fractions of image height ──────────────────────────
-  static const double _headerEnd = 0.28;
-  static const double _metaEnd = 0.44;
-  static const double _tableEnd = 0.84;
-  // footer = _tableEnd → 1.0
+  // Confidence levels
+  static const double _highConf = 0.95;
+  static const double _medConf = 0.78;
+  static const double _lowConf = 0.45;
 
-  // ─── Confidence constants ───────────────────────────────────────────────────
-  static const double _highConf = 0.92;
-  static const double _medConf = 0.75;
-  static const double _lowConf = 0.55;
-
-  /// Parse a full bill from ML Kit's [RecognizedText] and the image [imageHeight].
-  /// Runs a spatial zone pass, then a label-proximity pass, then validates.
+  /// Parse ML Kit's [RecognizedText] into structured [BillExtractionResult].
   static BillExtractionResult parse(
     RecognizedText recognizedText,
     int imageHeight,
     int imageWidth,
   ) {
-    final double h = imageHeight.toDouble();
-    final double w = imageWidth.toDouble();
+    debugPrint("SpatialLayoutParser: Beginning layout-aware invoice parse...");
 
-    // ── 1. Partition blocks into zones ───────────────────────────────────────
-    final List<TextBlock> headerBlocks = [];
-    final List<TextBlock> metaBlocks = [];
-    final List<TextBlock> tableBlocks = [];
-    final List<TextBlock> footerBlocks = [];
+    // Step 1: Reconstruct the document lines horizontally
+    final spatialLines = _reconstructHorizontalLines(recognizedText);
+    debugPrint("SpatialLayoutParser: Reconstructed ${spatialLines.length} horizontal lines.");
 
-    for (final block in recognizedText.blocks) {
-      final rect = block.boundingBox;
-      if (rect == null) continue;
-      final double centerY = (rect.top + rect.bottom) / 2.0;
-      final double relY = centerY / h;
+    // Step 2: Extract Merchant Shop details
+    final shopResult = _extractShopName(spatialLines);
+    final gstResult = _extractGstNumber(spatialLines);
 
-      if (relY < _headerEnd) {
-        headerBlocks.add(block);
-      } else if (relY < _metaEnd) {
-        metaBlocks.add(block);
-      } else if (relY < _tableEnd) {
-        tableBlocks.add(block);
-      } else {
-        footerBlocks.add(block);
-      }
-    }
+    // Step 3: Extract Buyer/Customer details
+    final customerResult = _extractCustomerName(spatialLines, shopResult.value);
 
-    debugPrint(
-        'SpatialLayoutParser: header=${headerBlocks.length}, meta=${metaBlocks.length}, '
-        'table=${tableBlocks.length}, footer=${footerBlocks.length}');
+    // Step 4: Extract Invoice metadata
+    final invoiceResult = _extractInvoiceNumber(spatialLines);
+    final dateResult = _extractDate(spatialLines);
 
-    // ── 2. Extract fields from each zone ─────────────────────────────────────
-    final shopResult = _extractShopName(headerBlocks);
-    final gstResult = _extractGstNumber(recognizedText.blocks); // GST can appear anywhere
-    final customerResult = _extractCustomerName(metaBlocks, shopResult.value);
-    final invoiceResult = _extractInvoiceNumber(metaBlocks);
-    final dateResult = _extractDate(metaBlocks, headerBlocks);
-    final products = _extractProducts(tableBlocks, w);
-    final totalResult = _extractGrandTotal(footerBlocks, tableBlocks, products);
+    // Step 5: Extract Products table columns
+    final products = _extractProducts(spatialLines);
 
-    // ── 3. Compute overall confidence ─────────────────────────────────────────
-    final fields = [
+    // Step 6: Extract Totals (Taxable Subtotal, GST, Grand Total)
+    final totals = _extractTotals(spatialLines, products);
+
+    // Calculate average confidence across primary fields
+    final confidenceScores = [
       shopResult.confidence,
       customerResult.confidence,
+      invoiceResult.confidence,
       dateResult.confidence,
-      totalResult.confidence,
+      totals.$3.confidence, // Grand Total
     ];
     final double overallConf =
-        fields.reduce((a, b) => a + b) / fields.length;
+        confidenceScores.reduce((a, b) => a + b) / confidenceScores.length;
 
     return BillExtractionResult(
       shopName: shopResult,
@@ -99,70 +112,113 @@ class SpatialLayoutParser {
       invoiceNumber: invoiceResult,
       invoiceDate: dateResult,
       products: products,
-      grandTotal: totalResult,
+      grandTotal: totals.$3, // Grand Total
       overallConfidence: overallConf,
-      extractionSource: 'offline_mlkit_spatial',
+      extractionSource: 'offline_mlkit_spatial_v2',
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SHOP NAME EXTRACTOR
-  // Strategy: In the header zone, the shop name is usually the LARGEST or
-  // FIRST text block (printed prominently at the top). Prefer blocks with
-  // known commerce keywords.
-  // ═══════════════════════════════════════════════════════════════════════════
-  static ExtractedField<String> _extractShopName(List<TextBlock> header) {
-    if (header.isEmpty) {
+  // ─── Line Reconstruction Algorithm ─────────────────────────────────────────
+  static List<SpatialLine> _reconstructHorizontalLines(RecognizedText recognizedText) {
+    final List<SpatialLine> spatialLines = [];
+
+    for (final block in recognizedText.blocks) {
+      for (final line in block.lines) {
+        final rect = line.boundingBox;
+        if (rect == null || line.text.trim().isEmpty) continue;
+
+        final double lineTop = rect.top.toDouble();
+        final double lineBottom = rect.bottom.toDouble();
+        final double lineCenterY = (lineTop + lineBottom) / 2.0;
+        final double lineHeight = lineBottom - lineTop;
+
+        bool merged = false;
+        for (final sl in spatialLines) {
+          // Check vertical overlap ratio
+          final double overlapTop = max(sl.top, lineTop);
+          final double overlapBottom = min(sl.bottom, lineBottom);
+          final double overlap = overlapBottom - overlapTop;
+          final double minHeight = min(sl.height, lineHeight);
+
+          // If lines overlap by more than 45% of the smaller line height,
+          // or their centers are within each other's boundaries, merge them.
+          if (overlap > minHeight * 0.45 || 
+              (lineCenterY >= sl.top && lineCenterY <= sl.bottom) ||
+              (sl.centerY >= lineTop && sl.centerY <= lineBottom)) {
+            sl.addTextLine(line);
+            merged = true;
+            break;
+          }
+        }
+
+        if (!merged) {
+          spatialLines.add(SpatialLine(
+            top: lineTop,
+            bottom: lineBottom,
+            lines: [line],
+          ));
+        }
+      }
+    }
+
+    // Sort lines top-to-bottom
+    spatialLines.sort((a, b) => a.top.compareTo(b.top));
+    return spatialLines;
+  }
+
+  // ─── Field Extraction: Merchant details ────────────────────────────────────
+  static ExtractedField<String> _extractShopName(List<SpatialLine> lines) {
+    if (lines.isEmpty) {
       return const ExtractedField(value: '', confidence: 0.0);
     }
 
     const shopKeywords = [
       'agro', 'agency', 'kendra', 'store', 'shop', 'center', 'centre',
       'enterprise', 'traders', 'supplier', 'seeds', 'fertilizer',
-      'krishi', 'seva', 'mart', 'market', 'trading', 'sales',
+      'krishi', 'seva', 'mart', 'market', 'trading', 'sales', 'fertilizers'
     ];
 
-    // Sort header blocks by Y position (top first)
-    final sorted = List<TextBlock>.from(header)
-      ..sort((a, b) {
-        final ay = a.boundingBox?.top ?? 0;
-        final by = b.boundingBox?.top ?? 0;
-        return ay.compareTo(by);
-      });
+    // Shop name is printed at the top. Check the first 8 lines.
+    final topLines = lines.take(min(8, lines.length)).toList();
 
-    // First pass: blocks with commerce keywords
-    for (final block in sorted) {
-      final text = block.text.trim();
+    // Pass 1: Line containing business keywords
+    for (final sl in topLines) {
+      final text = sl.text.trim();
       final lower = text.toLowerCase();
-      if (shopKeywords.any((k) => lower.contains(k)) && text.length > 3) {
-        return ExtractedField(value: _cleanName(text), confidence: _highConf);
+      if (shopKeywords.any((keyword) => lower.contains(keyword)) && 
+          text.length > 4 && 
+          !_isNumericLine(text) &&
+          !lower.contains("gst") &&
+          !lower.contains("phone")) {
+        return ExtractedField(value: _cleanText(text), confidence: _highConf);
       }
     }
 
-    // Second pass: topmost non-numeric block of reasonable length
-    for (final block in sorted) {
-      final text = block.text.trim();
-      if (text.length > 4 && !_isAllNumeric(text) && !_looksLikeAddress(text)) {
-        return ExtractedField(value: _cleanName(text), confidence: _medConf);
+    // Pass 2: Fallback to the first non-numeric line that doesn't look like meta info
+    for (final sl in topLines) {
+      final text = sl.text.trim();
+      final lower = text.toLowerCase();
+      if (text.length > 5 && 
+          !_isNumericLine(text) && 
+          !_looksLikeAddressOrContact(text) &&
+          !lower.contains("invoice") &&
+          !lower.contains("bill") &&
+          !lower.contains("gst")) {
+        return ExtractedField(value: _cleanText(text), confidence: _medConf);
       }
     }
 
-    return const ExtractedField(value: '', confidence: 0.0);
+    return const ExtractedField(value: 'General Agro Store', confidence: 0.20);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // GST NUMBER EXTRACTOR — searches all blocks for Indian GST format
-  // Format: 2 digits + 5 letters + 4 digits + 1 letter + 1 alnum + Z + alnum
-  // Example: 29AAAAA0000A1Z5
-  // ═══════════════════════════════════════════════════════════════════════════
-  static ExtractedField<String> _extractGstNumber(List<TextBlock> allBlocks) {
+  static ExtractedField<String> _extractGstNumber(List<SpatialLine> lines) {
     final gstRegex = RegExp(
       r'\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}\b',
       caseSensitive: false,
     );
 
-    for (final block in allBlocks) {
-      final match = gstRegex.firstMatch(block.text);
+    for (final sl in lines) {
+      final match = gstRegex.firstMatch(sl.text);
       if (match != null) {
         return ExtractedField(
           value: match.group(0)!.toUpperCase(),
@@ -173,103 +229,89 @@ class SpatialLayoutParser {
     return const ExtractedField(value: '', confidence: 0.3);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CUSTOMER NAME EXTRACTOR
-  // Strategy: Look for label-value pairs in the meta zone.
-  // Labels: "Customer", "Buyer", "Billed To", "Name", "ಹೆಸರು"
-  // The value is text on the same line after the colon, or on the next line.
-  // ═══════════════════════════════════════════════════════════════════════════
-  static ExtractedField<String> _extractCustomerName(
-    List<TextBlock> meta,
-    String shopName,
-  ) {
+  // ─── Field Extraction: Buyer details ───────────────────────────────────────
+  static ExtractedField<String> _extractCustomerName(List<SpatialLine> lines, String shopName) {
     const buyerLabels = [
+      'customer name', 'buyer name', 'recipient name',
       'customer', 'buyer', 'billed to', 'bill to', 'sold to',
-      'party', 'name', 'ಹೆಸರು', 'नाम', 'ग्राहक',
+      'party name', 'party', 'name', 'ಹೆಸರು', 'नाम', 'ग्राहक'
     ];
 
-    for (final block in meta) {
-      for (final line in block.lines) {
-        final lower = line.text.toLowerCase();
-        if (buyerLabels.any((lbl) => lower.contains(lbl))) {
-          // Value after colon on same line
-          final afterColon = _valueAfterDelimiter(line.text);
-          if (afterColon.isNotEmpty && afterColon != shopName) {
-            return ExtractedField(
-              value: _cleanName(afterColon),
-              confidence: _highConf,
-            );
+    for (int i = 0; i < lines.length; i++) {
+      final sl = lines[i];
+      final text = sl.text;
+      final lower = text.toLowerCase();
+
+      for (final label in buyerLabels) {
+        final idx = lower.indexOf(label);
+        if (idx != -1) {
+          // Extract remainder of the line after the matched label
+          String val = text.substring(idx + label.length).trim();
+          val = val.replaceFirst(RegExp(r'^[\s/:\-–=]+'), '').trim();
+
+          // Reject if it contains shop name, or looks like label metadata
+          if (val.isNotEmpty && 
+              val != shopName && 
+              val.toLowerCase() != "/recipient" &&
+              !_isNumericLine(val) &&
+              val.length > 2) {
+            return ExtractedField(value: _cleanText(val), confidence: _highConf);
           }
-          // Check next line in the same block
-          final lineIdx = block.lines.indexOf(line);
-          if (lineIdx + 1 < block.lines.length) {
-            final nextLine = block.lines[lineIdx + 1].text.trim();
-            if (nextLine.isNotEmpty &&
-                !_isNumericLine(nextLine) &&
-                nextLine != shopName) {
-              return ExtractedField(
-                value: _cleanName(nextLine),
-                confidence: _medConf,
-              );
+
+          // Check the line immediately below if same line is empty or just label garbage
+          if (i + 1 < lines.length) {
+            final nextText = lines[i + 1].text.trim();
+            if (nextText.isNotEmpty && 
+                nextText != shopName && 
+                !_isNumericLine(nextText) && 
+                !_looksLikeAddressOrContact(nextText) &&
+                !nextText.toLowerCase().contains("invoice") &&
+                nextText.length > 2) {
+              return ExtractedField(value: _cleanText(nextText), confidence: _medConf);
             }
           }
         }
       }
     }
 
-    // Fallback: second prominent text block in meta zone that is not shop name
-    final candidates = meta
-        .map((b) => b.text.trim())
-        .where((t) =>
-            t.length > 4 &&
-            t != shopName &&
-            !_isNumericLine(t) &&
-            !_looksLikeAddress(t) &&
-            !_containsInvoiceKeyword(t))
-        .toList();
-
-    if (candidates.isNotEmpty) {
-      return ExtractedField(
-        value: _cleanName(candidates.first),
-        confidence: _lowConf,
-      );
-    }
-
-    return const ExtractedField(value: '', confidence: 0.0);
+    return const ExtractedField(value: 'Unknown Customer', confidence: 0.20);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // INVOICE NUMBER EXTRACTOR
-  // Labels: "Invoice No", "Bill No", "Receipt No", "Inv #", "Sl No"
-  // ═══════════════════════════════════════════════════════════════════════════
-  static ExtractedField<String> _extractInvoiceNumber(List<TextBlock> meta) {
-    final invoiceRegex = RegExp(
-      r'(?:inv(?:oice)?|bill|receipt|sl|sr|serial|order|ref|no)\s*[.:#]?\s*(\w[\w\-/]{1,14})',
-      caseSensitive: false,
-    );
+  // ─── Field Extraction: Invoice metadata ────────────────────────────────────
+  static ExtractedField<String> _extractInvoiceNumber(List<SpatialLine> lines) {
+    final invoiceLabels = [
+      'invoice no', 'inv no', 'bill no', 'receipt no', 'invoice number',
+      'bill number', 'invoice#', 'bill#', 'inv#', 'sl no', 'sl.no',
+      'invoice', 'inv', 'bill'
+    ];
 
-    for (final block in meta) {
-      final match = invoiceRegex.firstMatch(block.text);
-      if (match != null) {
-        final val = match.group(1)!.trim();
-        // Reject obvious dates and phone numbers
-        if (!_looksLikeDate(val) && val.length <= 14) {
-          return ExtractedField(value: val, confidence: _highConf);
+    for (final sl in lines) {
+      final text = sl.text;
+      final lower = text.toLowerCase();
+
+      for (final label in invoiceLabels) {
+        final idx = lower.indexOf(label);
+        if (idx != -1) {
+          String val = text.substring(idx + label.length).trim();
+          val = val.replaceFirst(RegExp(r'^[\s/:\-–=]+'), '').trim();
+
+          // Split by whitespace and take the first token (invoice id)
+          if (val.isNotEmpty) {
+            final tokens = val.split(RegExp(r'\s+'));
+            final invToken = tokens.first.trim();
+            // Validate it doesn't look like a date or a phone number
+            if (!_looksLikeDate(invToken) && invToken.length <= 16 && invToken.length > 1) {
+              return ExtractedField(value: invToken, confidence: _highConf);
+            }
+          }
         }
       }
     }
+
     return const ExtractedField(value: '', confidence: 0.3);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DATE EXTRACTOR
-  // Supports: DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, DD.MM.YYYY
-  // Outputs: YYYY-MM-DD
-  // ═══════════════════════════════════════════════════════════════════════════
-  static ExtractedField<String> _extractDate(
-    List<TextBlock> meta,
-    List<TextBlock> header,
-  ) {
+  static ExtractedField<String> _extractDate(List<SpatialLine> lines) {
     final datePatterns = [
       // YYYY-MM-DD or YYYY/MM/DD
       RegExp(r'\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b'),
@@ -277,68 +319,29 @@ class SpatialLayoutParser {
       RegExp(r'\b(0?[1-9]|[12]\d|3[01])[-/\.](0?[1-9]|1[0-2])[-/\.](20\d{2})\b'),
     ];
 
-    String? rawDate;
-    for (final block in [...meta, ...header]) {
+    for (final sl in lines) {
+      final text = sl.text;
       for (final pattern in datePatterns) {
-        final match = pattern.firstMatch(block.text);
+        final match = pattern.firstMatch(text);
         if (match != null) {
-          rawDate = match.group(0);
-          break;
+          final rawDate = match.group(0)!;
+          return ExtractedField(value: _normalizeDate(rawDate), confidence: _highConf);
         }
       }
-      if (rawDate != null) break;
     }
 
-    if (rawDate == null) {
-      return ExtractedField(
-        value: DateTime.now().toIso8601String().substring(0, 10),
-        confidence: _lowConf,
-      );
-    }
-
+    // Default to today
     return ExtractedField(
-      value: _normalizeDate(rawDate),
-      confidence: _highConf,
+      value: DateTime.now().toIso8601String().substring(0, 10),
+      confidence: 0.50,
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PRODUCTS TABLE EXTRACTOR
-  // Strategy: Table rows in Indian fertilizer bills typically have:
-  //   - A serial number at the left (1., 2., etc.)
-  //   - Product name text
-  //   - Quantity + unit
-  //   - Amount at the far right
-  //
-  // We use X-coordinate clustering to find the rightmost column (amount)
-  // and left region (product name). Rows with agricultural keywords are
-  // also captured even without a serial number.
-  // ═══════════════════════════════════════════════════════════════════════════
-  static List<ExtractedProduct> _extractProducts(
-    List<TextBlock> tableBlocks,
-    double imageWidth,
-  ) {
+  // ─── Field Extraction: Table Products ──────────────────────────────────────
+  static List<ExtractedProduct> _extractProducts(List<SpatialLine> lines) {
     final List<ExtractedProduct> products = [];
 
-    // Gather all lines from table zone, sorted top-to-bottom
-    final allLines = <_LineData>[];
-    for (final block in tableBlocks) {
-      for (final line in block.lines) {
-        final rect = line.boundingBox;
-        if (rect == null) continue;
-        allLines.add(_LineData(
-          text: line.text.trim(),
-          top: rect.top.toDouble(),
-          left: rect.left.toDouble(),
-          right: rect.right.toDouble(),
-          width: rect.width.toDouble(),
-        ));
-      }
-    }
-    allLines.sort((a, b) => a.top.compareTo(b.top));
-
-    final serialRegex = RegExp(r'^\s*\d+\s*[.\-)\s]');
-    final agriKeyword = RegExp(
+    final agriKeywords = RegExp(
       r'(urea|npk|dap|potash|fertilizer|pesticide|insecticide|fungicide|'
       r'herbicide|phosphate|sulphate|zinc|calcium|magnesium|micronutrient|'
       r'coragen|chlor|seed|mono|compost|organic|bio|humic|boron|mancozeb|'
@@ -348,156 +351,195 @@ class SpatialLayoutParser {
       caseSensitive: false,
     );
 
-    for (final lineData in allLines) {
-      final text = lineData.text;
-      if (text.length < 3) continue;
+    final totalKeywords = RegExp(
+      r'(total|subtotal|taxable|cgst|sgst|igst|gst|tax|discount|round|payable)',
+      caseSensitive: false,
+    );
 
-      final isSerialRow = serialRegex.hasMatch(text);
-      final hasAgri = agriKeyword.hasMatch(text);
+    for (final sl in lines) {
+      final text = sl.text;
+      final lower = text.toLowerCase();
 
-      if (!isSerialRow && !hasAgri) continue;
+      // Skip lines carrying totals keywords
+      if (totalKeywords.hasMatch(lower)) continue;
 
-      // Clean out serial number prefix
-      final cleaned = text.replaceFirst(serialRegex, '').trim();
+      final hasAgri = agriKeywords.hasMatch(lower);
+      if (!hasAgri) continue;
 
-      // Extract all numeric tokens from this line
+      // Extract all numeric elements from the line
       final numRegex = RegExp(
         r'\b\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\b\d{1,7}(?:\.\d{1,2})?\b',
       );
-      final nums = numRegex
-          .allMatches(cleaned)
+      final numMatches = numRegex.allMatches(text).toList();
+      if (numMatches.isEmpty) continue;
+
+      final List<double> values = numMatches
           .map((m) => double.tryParse(m.group(0)!.replaceAll(',', '')) ?? 0.0)
           .where((v) => v > 0)
           .toList();
 
-      if (nums.isEmpty) continue;
+      if (values.isEmpty) continue;
 
-      // Amount = last/largest number; quantity = first small number
-      double amount = nums.last;
+      // Layout Column Mapping:
+      // - Rightmost number is typically row Amount.
+      // - Second rightmost is Unit Price / Rate.
+      // - Leftmost is Quantity.
+      double amount = values.last;
       double quantity = 1.0;
       String unit = 'bag';
 
-      // Try to find explicit quantity+unit pattern
+      // Look for explicit quantity + unit format: "10 bags", "5 kg", "2 ltr"
       final unitMatch = RegExp(
         r'(\d+(?:\.\d+)?)\s*(bags?|kg|litre?s?|lt?|bottles?|packets?|boxes?|pkt|nos?|units?)\b',
         caseSensitive: false,
-      ).firstMatch(cleaned);
+      ).firstMatch(text);
 
       if (unitMatch != null) {
         quantity = double.tryParse(unitMatch.group(1)!) ?? 1.0;
         unit = unitMatch.group(2)!.toLowerCase().replaceAll(RegExp(r's$'), '');
-      } else if (nums.length >= 2) {
-        // Fallback: first numeric value is usually quantity
-        quantity = nums.first < amount ? nums.first : 1.0;
+      } else if (values.length >= 2) {
+        quantity = values.first < amount ? values.first : 1.0;
       }
 
-      // Product name = text before first number
-      String productName = cleaned;
-      final firstNumIdx = numRegex.firstMatch(cleaned)?.start ?? cleaned.length;
-      if (firstNumIdx > 0) {
-        productName = cleaned.substring(0, firstNumIdx).trim();
+      // Reconstruct product name: everything to the left of the first number,
+      // discarding leading serial numbers (e.g. "1.", "2 -").
+      String prodName = text;
+      final serialMatch = RegExp(r'^\s*\d+\s*[.\-)\s]+').firstMatch(prodName);
+      if (serialMatch != null) {
+        prodName = prodName.substring(serialMatch.end).trim();
       }
-      // Strip trailing punctuation/dashes
-      productName = productName
-          .replaceAll(RegExp(r'[\s\-–:,\.]+$'), '')
-          .trim();
 
-      if (productName.isEmpty || amount < 1.0) continue;
+      final firstNumMatch = numRegex.firstMatch(prodName);
+      if (firstNumMatch != null) {
+        prodName = prodName.substring(0, firstNumMatch.start).trim();
+      }
+      prodName = prodName.replaceAll(RegExp(r'[\s\-–:,\.]+$'), '').trim();
 
-      // Reject lines that are clearly totals/tax rows
-      if (_isTotalLine(productName)) continue;
+      if (prodName.length > 2 && amount > 1.0) {
+        final matchedName = BillValidator.fuzzyMatchFertilizer(prodName) ?? prodName;
+        final nameConfidence = BillValidator.fuzzyMatchFertilizer(prodName) != null ? _highConf : _medConf;
 
-      // Fuzzy-match fertilizer name to known catalogue
-      final fuzzyName = BillValidator.fuzzyMatchFertilizer(productName);
-      final finalName = fuzzyName ?? productName;
-      final nameConf = fuzzyName != null ? _highConf : _medConf;
-
-      products.add(ExtractedProduct(
-        name: ExtractedField(value: _cleanProductName(finalName), confidence: nameConf),
-        quantity: ExtractedField(value: quantity, confidence: unitMatch != null ? _highConf : _medConf),
-        unit: ExtractedField(value: unit, confidence: unitMatch != null ? _highConf : _lowConf),
-        amount: ExtractedField(value: amount, confidence: amount > 10 ? _highConf : _medConf),
-        category: _classifyProduct(finalName),
-      ));
+        products.add(ExtractedProduct(
+          name: ExtractedField(value: _cleanProductName(matchedName), confidence: nameConfidence),
+          quantity: ExtractedField(value: quantity, confidence: unitMatch != null ? _highConf : _medConf),
+          unit: ExtractedField(value: unit, confidence: unitMatch != null ? _highConf : _lowConf),
+          amount: ExtractedField(value: amount, confidence: _highConf),
+          category: _classifyProduct(matchedName),
+        ));
+      }
     }
 
     return products;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // GRAND TOTAL EXTRACTOR
-  // Searches footer zone first, then table zone for total keywords.
-  // Picks the LARGEST valid amount near a "Total" keyword.
-  // ═══════════════════════════════════════════════════════════════════════════
-  static ExtractedField<double> _extractGrandTotal(
-    List<TextBlock> footerBlocks,
-    List<TextBlock> tableBlocks,
+  // ─── Field Extraction: Totals ──────────────────────────────────────────────
+  // Returns: (Taxable Subtotal, GST, Grand Total)
+  static (ExtractedField<double>, ExtractedField<double>, ExtractedField<double>) _extractTotals(
+    List<SpatialLine> lines,
     List<ExtractedProduct> products,
   ) {
-    final totalRegex = RegExp(
-      r'(grand\s*total|net\s*(?:total|amount)|total\s*amount|amount\s*payable|'
-      r'payable|total\s*due|bill\s*total|g\.?\s*total|ಒಟ್ಟು|कुल)',
-      caseSensitive: false,
-    );
+    double? taxable;
+    double? gst;
+    double? grandTotal;
 
     final numRegex = RegExp(
       r'(?:₹|Rs\.?|INR)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d{1,7}(?:\.\d{1,2})?)\b',
     );
 
-    double? detected;
-    double detectedConf = 0.0;
+    for (final sl in lines) {
+      final text = sl.text;
+      final lower = text.toLowerCase();
 
-    for (final block in [...footerBlocks, ...tableBlocks]) {
-      if (!totalRegex.hasMatch(block.text)) continue;
       final amounts = numRegex
-          .allMatches(block.text)
+          .allMatches(text)
           .map((m) => double.tryParse(m.group(1)!.replaceAll(',', '')) ?? 0.0)
-          .where((v) => v >= 10.0)
+          .where((v) => v > 0)
           .toList();
 
-      if (amounts.isNotEmpty) {
-        // Grand total is typically the largest amount near the total keyword
-        final candidate = amounts.reduce(max);
-        if (detected == null || candidate > detected!) {
-          detected = candidate;
-          detectedConf = _highConf;
-        }
+      if (amounts.isEmpty) continue;
+
+      // Taxable Subtotal
+      if (lower.contains("subtotal") || 
+          lower.contains("taxable value") || 
+          lower.contains("taxable amount") ||
+          lower.contains("amount before tax")) {
+        taxable = amounts.last;
+      }
+
+      // GST Tax amount
+      if (lower.contains("cgst") || 
+          lower.contains("sgst") || 
+          lower.contains("igst") || 
+          lower.contains("gst tax") ||
+          lower.contains("tax amount")) {
+        // Accumulate GST tax lines
+        gst = (gst ?? 0.0) + amounts.last;
+      }
+
+      // Grand Total
+      if (lower.contains("grand total") || 
+          lower.contains("net amount") || 
+          lower.contains("amount payable") ||
+          lower.contains("g.total") ||
+          lower.contains("total due") ||
+          (lower.contains("total") && !lower.contains("subtotal") && !lower.contains("taxable") && !lower.contains("gst"))) {
+        grandTotal = amounts.last;
       }
     }
 
-    // Fallback: sum of product amounts
-    if (detected == null || detected! < 1.0) {
-      final itemSum = products.fold<double>(
-        0.0,
-        (sum, p) => sum + p.amount.value,
-      );
-      detected = itemSum;
-      detectedConf = itemSum > 0 ? _medConf : 0.0;
+    // Fallbacks if not found
+    final double itemSum = products.fold<double>(0.0, (sum, p) => sum + p.amount.value);
+    taxable ??= itemSum;
+    gst ??= 0.0;
+    grandTotal ??= taxable + gst;
+
+    // Cross-validate totals
+    if (grandTotal == 0.0 && itemSum > 0.0) {
+      grandTotal = itemSum;
     }
 
-    return ExtractedField(value: detected!, confidence: detectedConf);
+    return (
+      ExtractedField(value: taxable, confidence: taxable > 0 ? _highConf : _lowConf),
+      ExtractedField(value: gst, confidence: gst >= 0 ? _highConf : _lowConf),
+      ExtractedField(value: grandTotal, confidence: grandTotal > 0 ? _highConf : _lowConf),
+    );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // HELPERS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  static String _valueAfterDelimiter(String text) {
-    final idx = text.indexOf(RegExp(r'[:：]'));
-    if (idx < 0) return '';
-    return text.substring(idx + 1).trim();
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+  static String _cleanText(String val) {
+    return val
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .trim();
   }
 
-  static String _cleanName(String text) => text
-      .split('\n')
-      .first
-      .trim()
-      .replaceAll(RegExp(r'\s{2,}'), ' ');
+  static String _cleanProductName(String val) {
+    return val
+        .replaceAll(RegExp(r'[^\w\s\-().%/:,]'), '')
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .trim();
+  }
 
-  static String _cleanProductName(String name) => name
-      .replaceAll(RegExp(r'[^\w\s\-().%/:,]'), '')
-      .replaceAll(RegExp(r'\s{2,}'), ' ')
-      .trim();
+  static bool _isNumericLine(String text) {
+    final nonNum = text.replaceAll(RegExp(r'[\d\s,.\-+₹%]'), '');
+    return nonNum.length < 2;
+  }
+
+  static bool _looksLikeAddressOrContact(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains("road") ||
+        lower.contains("street") ||
+        lower.contains("nagar") ||
+        lower.contains("dist") ||
+        lower.contains("taluk") ||
+        lower.contains("pin") ||
+        lower.contains("ph:") ||
+        lower.contains("mob:") ||
+        lower.contains("phone");
+  }
+
+  static bool _looksLikeDate(String text) {
+    return RegExp(r'\d{2}[-/]\d{2}[-/]\d{2,4}').hasMatch(text);
+  }
 
   static String _normalizeDate(String raw) {
     // Try YYYY-MM-DD / YYYY/MM/DD
@@ -506,57 +548,12 @@ class SpatialLayoutParser {
     if (dm != null) {
       return '${dm.group(1)}-${dm.group(2)!.padLeft(2, '0')}-${dm.group(3)!.padLeft(2, '0')}';
     }
-    // DD-MM-YYYY
+    // DD-MM-YYYY or DD.MM.YYYY
     final parts = raw.split(RegExp(r'[-/.]'));
     if (parts.length == 3 && parts[2].length == 4) {
       return '${parts[2]}-${parts[1].padLeft(2, '0')}-${parts[0].padLeft(2, '0')}';
     }
     return raw;
-  }
-
-  static bool _isAllNumeric(String t) =>
-      RegExp(r'^\d[\d\s,.\-+]+$').hasMatch(t.trim());
-
-  static bool _isNumericLine(String t) {
-    final nonNum = t.replaceAll(RegExp(r'[\d\s,.\-+₹%]'), '');
-    return nonNum.length < 2;
-  }
-
-  static bool _looksLikeDate(String t) =>
-      RegExp(r'\d{2}[-/]\d{2}[-/]\d{2,4}').hasMatch(t);
-
-  static bool _looksLikeAddress(String t) {
-    final lower = t.toLowerCase();
-    return lower.contains('road') ||
-        lower.contains('street') ||
-        lower.contains('nagar') ||
-        lower.contains('dist') ||
-        lower.contains('taluk') ||
-        lower.contains('pin') ||
-        lower.contains('ph:') ||
-        lower.contains('mob:');
-  }
-
-  static bool _containsInvoiceKeyword(String t) {
-    final lower = t.toLowerCase();
-    return lower.contains('invoice') ||
-        lower.contains('bill') ||
-        lower.contains('gst') ||
-        lower.contains('total') ||
-        lower.contains('date');
-  }
-
-  static bool _isTotalLine(String name) {
-    final lower = name.toLowerCase();
-    return lower.contains('total') ||
-        lower.contains('subtotal') ||
-        lower.contains('tax') ||
-        lower.contains('gst') ||
-        lower.contains('cgst') ||
-        lower.contains('sgst') ||
-        lower.contains('discount') ||
-        lower.contains('round') ||
-        lower.contains('payable');
   }
 
   static String _classifyProduct(String name) {
@@ -569,24 +566,6 @@ class SpatialLayoutParser {
             r'carbendazim|imidacloprid|acetamiprid|fipronil|chlorpyrifos|'
             r'glyphosate|paraquat|ಕ್ರಿಮಿನಾಶಕ)')
         .hasMatch(lower)) return 'Pesticide';
-    if (lower.contains('seed')) return 'Other';
     return 'Other';
   }
-}
-
-/// Internal helper to carry line spatial metadata.
-class _LineData {
-  final String text;
-  final double top;
-  final double left;
-  final double right;
-  final double width;
-
-  const _LineData({
-    required this.text,
-    required this.top,
-    required this.left,
-    required this.right,
-    required this.width,
-  });
 }

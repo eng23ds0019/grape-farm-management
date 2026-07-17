@@ -100,6 +100,59 @@ class GeminiService {
     return "";
   }
 
+  /// Generates content for a general text prompt against Gemini 1.5 Flash.
+  static Future<String> getDirectResponse(String prompt) async {
+    try {
+      final payload = {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": prompt
+              }
+            ]
+          }
+        ]
+      };
+
+      final url = Uri.parse(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$geminiApiKey"
+      );
+
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 20);
+      final request = await client.postUrl(url);
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(payload));
+
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final responseBody = await response.transform(utf8.decoder).join();
+        final Map<String, dynamic> json = jsonDecode(responseBody);
+
+        final candidates = json['candidates'] as List?;
+        if (candidates != null && candidates.isNotEmpty) {
+          final content = candidates[0]['content'] as Map?;
+          if (content != null) {
+            final parts = content['parts'] as List?;
+            if (parts != null && parts.isNotEmpty) {
+              final text = parts[0]['text'] as String?;
+              if (text != null) {
+                return text.trim();
+              }
+            }
+          }
+        }
+      } else {
+         final err = await response.transform(utf8.decoder).join();
+         debugPrint("Gemini Direct API Error: ${response.statusCode} - $err");
+      }
+    } catch (e) {
+      debugPrint("GeminiService: Exception in getDirectResponse: $e");
+    }
+    return "";
+  }
+
   /// Extracts receipt details from a local image file using Gemini 1.5 Flash.
   static Future<Map<String, dynamic>?> analyzeReceipt(String filePath) async {
     final file = File(filePath);
@@ -425,56 +478,46 @@ class GeminiService {
     required String query,
     required String languageCode,
     required String plotStage,
-    required String recentEntriesSummary,
-    required String recentBillsSummary,
-    required String recentTurnoversSummary,
+    required String personalizedContextJson,
+    required String knowledgeBaseContext,
+    required List<Map<String, dynamic>> chatHistory,
   }) async {
     try {
       final languageName = languageCode == 'kn-IN' ? 'Kannada (ಕನ್ನಡ)' : (languageCode == 'hi-IN' ? 'Hindi (हिंदी)' : 'English');
 
-      final systemPrompt = "You are Draksha AI, a friendly, extremely intelligent, and natural grape farming voice advisor.\n"
+      final systemPrompt = "You are Draksha AI, a friendly, highly intelligent grape farming voice advisor.\n"
           "Address the farmer as '$farmerName'. Maintain a warm, conversational connection. Do not sound robotic.\n"
-          "The current plot stage of their vineyard is '$plotStage'.\n\n"
-          "You must answer using three structured knowledge layers with distinct priorities:\n\n"
-          "--- LAYER 1: COMMON SENSE (EVERYDAY CONVERSATION) ---\n"
-          "- Reply politely and naturally to casual greetings and questions (e.g., 'Hello', 'How are you?', 'Who are you?', 'Thank you').\n"
-          "- Keep it brief and friendly.\n\n"
-          "--- LAYER 2: PERMANENT GRAPE FARMING KNOWLEDGE ---\n"
-          "- Provide accurate grape viticulture advice on diseases (Downy Mildew, Powdery Mildew, Flea Beetle, Thrips), canopy management, pruning (April/October), GA3 doses, fertilizers, and yield improvement.\n"
-          "- Common treatment rules:\n"
-          "  * Downy Mildew: Copper Oxychloride (COC), Bordeaux mixture, or Metalaxyl+Mancozeb.\n"
-          "  * Powdery Mildew: Soluble sulfur, Dinocap, or Penconazole (Topas).\n"
-          "  * Flea Beetle (Udada): Imidacloprid or Spinosad.\n"
-          "  * Thrips (Nusi): Fipronil or Spinosad.\n"
-          "  * Mixing: NEVER mix copper fungicides/Bordeaux with soluble sulfur (causes leaf scorching).\n"
-          "  * Nutrition: No heavy Urea/nitrogen during berry ripening (delays sweetening/Brix development).\n\n"
-          "--- LAYER 3: PERSONALIZED FARMER MEMORY (FIRESTORE RECORDS) ---\n"
-          "When the farmer asks about their own history (e.g. 'What did I spray last month?'), use these matched records:\n"
-          "--- MATCHED DIARY LOGS ---\n"
-          "$recentEntriesSummary\n\n"
-          "--- MATCHED PURCHASE BILLS ---\n"
-          "$recentBillsSummary\n\n"
-          "--- MATCHED SALES & TURNOVERS ---\n"
-          "$recentTurnoversSummary\n\n"
-          "--- ANSWER PRIORITY RULES ---\n"
-          "1. For casual/everyday greetings, use Layer 1.\n"
-          "2. For general grapes/farming advice, use Layer 2.\n"
-          "3. For history lookups, use Layer 3. If records are not found in Layer 3 context, say so clearly (e.g., 'I couldn't find any spray log for last month in your diary.').\n"
-          "4. Combine sources seamlessly if needed.\n\n"
-          "The farmer asks: '$query'\n\n"
-          "Respond in the same language spoken by the farmer ($languageName). Mixed English/$languageName is allowed if they spoke in a mixed tone.\n"
-          "Return ONLY the direct spoken response message. Do not include any formatting, markdown, prefixes, or agronomist labels.";
+          "Current Plot Stage: '$plotStage'.\n\n"
+          "--- LAYER 1: PERSONALIZED FARMER MEMORY (FIRESTORE) ---\n"
+          "JSON Summary of farmer's recent activity:\n$personalizedContextJson\n\n"
+          "--- LAYER 2: RELEVANT GRAPE FARMING KNOWLEDGE (RAG) ---\n"
+          "$knowledgeBaseContext\n\n"
+          "--- INSTRUCTIONS ---\n"
+          "1. Reason step-by-step internally, but only output the final polite, natural response.\n"
+          "2. Answer in $languageName. If they spoke mixed, you can reply mixed.\n"
+          "3. Return ONLY the direct spoken response message. No formatting, no asterisks (**), no markdown. Clean verbal text for TTS.";
+
+      // Build Chat History
+      final List<Map<String, dynamic>> contents = [];
+      for (var msg in chatHistory) {
+        contents.add({
+          "role": msg['role'] == 'user' ? 'user' : 'model',
+          "parts": [{"text": msg['text']}]
+        });
+      }
+      // Add current query
+      contents.add({
+        "role": "user",
+        "parts": [{"text": query}]
+      });
 
       final payload = {
-        "contents": [
-          {
-            "parts": [
-              {
-                "text": systemPrompt
-              }
-            ]
-          }
-        ]
+        "systemInstruction": {
+          "parts": [
+            { "text": systemPrompt }
+          ]
+        },
+        "contents": contents
       };
 
       final url = Uri.parse(
@@ -505,6 +548,9 @@ class GeminiService {
             }
           }
         }
+      } else {
+         final err = await response.transform(utf8.decoder).join();
+         debugPrint("Gemini Chat API Error: \${response.statusCode} - \$err");
       }
     } catch (e) {
       debugPrint("GeminiService: Exception generating chat response: $e");
@@ -516,9 +562,8 @@ class GeminiService {
       query: query,
       languageCode: languageCode,
       plotStage: plotStage,
-      recentEntriesSummary: recentEntriesSummary,
-      recentBillsSummary: recentBillsSummary,
-      recentTurnoversSummary: recentTurnoversSummary,
+      personalizedContextJson: personalizedContextJson,
+      knowledgeBaseContext: knowledgeBaseContext,
     );
   }
 
@@ -528,9 +573,8 @@ class GeminiService {
     required String query,
     required String languageCode,
     required String plotStage,
-    required String recentEntriesSummary,
-    required String recentBillsSummary,
-    required String recentTurnoversSummary,
+    required String personalizedContextJson,
+    required String knowledgeBaseContext,
   }) {
     final lower = query.toLowerCase();
     final isKn = languageCode == 'kn-IN';
@@ -541,95 +585,32 @@ class GeminiService {
     final isLogQuery = lower.contains("log") || lower.contains("diary") || lower.contains("entry") || lower.contains("history") || lower.contains("ಡೈರಿ") || lower.contains("ದಾಖಲೆ") || lower.contains("ಇತಿಹಾಸ") || lower.contains("डायरी") || lower.contains("इतिहास");
 
     if (isExpenseQuery) {
-      double totalBillExpenses = 0.0;
-      final billLines = recentBillsSummary.split('\n').where((l) => l.contains('Total:'));
-      final billRegex = RegExp(r'Total:\s*₹(\d+)');
-      for (var line in billLines) {
-        final match = billRegex.firstMatch(line);
-        if (match != null) {
-          totalBillExpenses += double.tryParse(match.group(1)!) ?? 0.0;
-        }
-      }
-
-      double totalDiaryExpenses = 0.0;
-      final diaryLines = recentEntriesSummary.split('\n').where((l) => l.contains('Expense:'));
-      final diaryRegex = RegExp(r'Expense:\s*₹(\d+)');
-      for (var line in diaryLines) {
-        final match = diaryRegex.firstMatch(line);
-        if (match != null) {
-          totalDiaryExpenses += double.tryParse(match.group(1)!) ?? 0.0;
-        }
-      }
-
-      final grandTotal = totalBillExpenses + totalDiaryExpenses;
-
       if (isKn) {
-        return "ನಮಸ್ತೆ $farmerName! ನಿಮ್ಮ ಇತ್ತೀಚಿನ ಖರ್ಚುಗಳ ವಿವರ ಇಲ್ಲಿದೆ:\n"
-            "- ರಸಗೊಬ್ಬರ ಮತ್ತು ಔಷಧ ಖರೀದಿ ಬಿಲ್‌ಗಳು: ₹${totalBillExpenses.toStringAsFixed(0)}\n"
-            "- ಡೈರಿ ದಾಖಲೆಗಳಲ್ಲಿ ನಮೂದಿಸಿದ ಇತರೆ ಖರ್ಚುಗಳು: ₹${totalDiaryExpenses.toStringAsFixed(0)}\n"
-            "- ಒಟ್ಟು ಖರ್ಚುಗಳು: ₹${grandTotal.toStringAsFixed(0)}\n\n"
-            "ಹೆಚ್ಚಿನ ವಿವರಗಳಿಗಾಗಿ ಮುಖ್ಯ ಪರದೆಯ 'ವೆಚ್ಚಗಳು' (Expenses) ವಿಭಾಗವನ್ನು ಪರಿಶೀಲಿಸಿ.";
+        return "ನಮಸ್ತೆ $farmerName! ನಿಮ್ಮ ಇತ್ತೀಚಿನ ಖರ್ಚುಗಳ ವಿವರಗಳನ್ನು ನೀವು ಮುಖ್ಯ ಪರದೆಯ 'ವೆಚ್ಚಗಳು' (Expenses) ವಿಭಾಗದಲ್ಲಿ ಪರಿಶೀಲಿಸಬಹುದು.";
       } else if (isHi) {
-        return "नमस्ते $farmerName! आपके हाल के खर्चों का विवरण:\n"
-            "- उर्वरक और दवा खरीद बिल: ₹${totalBillExpenses.toStringAsFixed(0)}\n"
-            "- डायरी प्रविष्टियों में दर्ज अन्य खर्चे: ₹${totalDiaryExpenses.toStringAsFixed(0)}\n"
-            "- कुल खर्चे: ₹${grandTotal.toStringAsFixed(0)}\n\n"
-            "अधिक विवरण के लिए मुख्य स्क्रीन के 'खर्च' (Expenses) अनुभाग को देखें।";
+        return "नमस्ते $farmerName! आपके हाल के खर्चों का विवरण मुख्य स्क्रीन के 'खर्च' (Expenses) अनुभाग में देखा जा सकता है।";
       } else {
-        return "[ Draksha AI Multi-Agent Advisor ]\n"
-            "Hello $farmerName! Here is the summary of your farm expenses based on your entered data:\n"
-            "- **Fertilizer & Pesticide Bills**: ₹${totalBillExpenses.toStringAsFixed(0)}\n"
-            "- **Other Diary Log Expenses**: ₹${totalDiaryExpenses.toStringAsFixed(0)}\n"
-            "- **Grand Total Spending**: ₹${grandTotal.toStringAsFixed(0)}\n\n"
-            "You can review the category breakdown in the 'Expenses' section on the dashboard.";
+        return "[ Draksha AI Multi-Agent Advisor ]\nHello $farmerName! I am offline right now. You can review your expenses in the 'Expenses' section on the dashboard.";
       }
     }
 
     if (isYieldQuery) {
-      double totalTons = 0.0;
-      final yieldLines = recentTurnoversSummary.split('\n').where((l) => l.contains('Total Yield:'));
-      final yieldRegex = RegExp(r'Total Yield:\s*([\d\.]+)\s*tons');
-      for (var line in yieldLines) {
-        final match = yieldRegex.firstMatch(line);
-        if (match != null) {
-          totalTons += double.tryParse(match.group(1)!) ?? 0.0;
-        }
-      }
-
       if (isKn) {
-        return "ನಮಸ್ತೆ $farmerName! ನಿಮ್ಮ ಒಟ್ಟು ದ್ರಾಕ್ಷಿ ಇಳುವರಿ ಮತ್ತು ಮಾರಾಟದ ವಿವರ ಇಲ್ಲಿದೆ:\n"
-            "- ಒಟ್ಟು ಮಾರಾಟ ಮಾಡಿದ ಇಳುವರಿ: ${totalTons.toStringAsFixed(1)} ಟನ್ (Tons)\n\n"
-            "ಇತ್ತೀಚಿನ ವಾಹನ ಸಂಖ್ಯೆ ಮತ್ತು ಬ್ಯಾಂಕ್ ಖಾತೆ ವಿವರಗಳನ್ನು ನೋಡಲು ಮುಖ್ಯ ಪರದೆಯ 'ಟರ್ನೋವರ್' (Turnover) ವಿಭಾಗಕ್ಕೆ ಭೇಟಿ ನೀಡಿ.";
+        return "ನಮಸ್ತೆ $farmerName! ನಿಮ್ಮ ಟರ್ನೋವರ್ ವಿವರಗಳನ್ನು 'ಟರ್ನೋವರ್' ವಿಭಾಗದಲ್ಲಿ ಪರಿಶೀಲಿಸಿ.";
       } else if (isHi) {
-        return "नमस्ते $farmerName! आपकी कुल अंगूर की उपज और बिक्री विवरण:\n"
-            "- कुल बेची गई उपज: ${totalTons.toStringAsFixed(1)} टन (Tons)\n\n"
-            "वाहन संख्या और बैंक खातों के विवरण के लिए मुख्य स्क्रीन के 'टर्नओवर' (Turnover) अनुभाग पर जाएं।";
+        return "नमस्ते $farmerName! अपने टर्नओवर का विवरण 'टर्नओवर' अनुभाग में जांचें।";
       } else {
-        return "[ Draksha AI Multi-Agent Advisor ]\n"
-            "Hello $farmerName! Here is your yield and sales history based on your turnovers:\n"
-            "- **Total Grapes Sold**: ${totalTons.toStringAsFixed(1)} tons\n\n"
-            "Check the 'Turnover' tab to view specific vehicle dispatch numbers and bank credit status.";
+        return "[ Draksha AI Multi-Agent Advisor ]\nHello $farmerName! I am offline right now. Check the 'Turnover' tab to view specific vehicle dispatch numbers and sales.";
       }
     }
 
     if (isLogQuery) {
-      final activeEntries = recentEntriesSummary.replaceAll("No recent logs recorded yet.", "").trim();
-      if (activeEntries.isEmpty) {
-        if (isKn) {
-          return "ನಮಸ್ತೆ $farmerName, ನೀವು ಇತ್ತೀಚೆಗೆ ಯಾವುದೇ ಡೈರಿ ದಾಖಲೆಗಳನ್ನು ನಮೂದಿಸಿಲ್ಲ.";
-        } else if (isHi) {
-          return "नमस्ते $farmerName, आपने हाल ही में कोई डायरी प्रविष्टि दर्ज नहीं की है।";
-        }
-        return "Hello $farmerName, there are no recent diary logs recorded in your plot diary yet.";
-      }
-
       if (isKn) {
-        return "ನಮಸ್ತೆ $farmerName! ನಿಮ್ಮ ಕೊನೆಯ ಡೈರಿ ನಮೂದುಗಳು ಇಲ್ಲಿವೆ:\n$activeEntries";
+        return "ನಮಸ್ತೆ $farmerName! ನಿಮ್ಮ ಕೊನೆಯ ಡೈರಿ ನಮೂದುಗಳನ್ನು 'ಡೈರಿ' ವಿಭಾಗದಲ್ಲಿ ನೋಡಿ.";
       } else if (isHi) {
-        return "नमस्ते $farmerName! आपकी हाल की डायरी प्रविष्टियाँ:\n$activeEntries";
+        return "नमस्ते $farmerName! अपनी हाल की डायरी प्रविष्टियाँ 'डायरी' अनुभाग में देखें।";
       } else {
-        return "[ Draksha AI Multi-Agent Advisor ]\n"
-            "Hello $farmerName! Here are your recent plot activities:\n$activeEntries";
+        return "[ Draksha AI Multi-Agent Advisor ]\nHello $farmerName! I am offline. Please check the Dairy section for logs.";
       }
     }
 

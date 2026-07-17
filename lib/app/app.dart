@@ -21,7 +21,7 @@ import '../features/backup/screens/backup_status_screen.dart';
 import '../features/privacy/screens/privacy_consent_screen.dart';
 import '../features/reports/screens/share_report_screen.dart';
 import '../features/photos/screens/photo_gallery_screen.dart';
-import '../features/chatbot/screens/grapes_chatbot_screen.dart';
+import '../features/draksha_ai/screens/voice_engine_screen.dart';
 import '../models/diary_entry_model.dart';
 
 class DrakshaDiaryApp extends StatelessWidget {
@@ -125,7 +125,7 @@ class DrakshaDiaryApp extends StatelessWidget {
           case '/chatbot':
             final farmId = settings.arguments as String? ?? "plot_1";
             return MaterialPageRoute(
-              builder: (_) => GrapesChatbotScreen(selectedFarmId: farmId),
+              builder: (_) => VoiceEngineScreen(selectedFarmId: farmId),
             );
 
           case '/admin':

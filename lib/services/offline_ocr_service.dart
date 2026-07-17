@@ -15,6 +15,7 @@
 // Zero cloud calls. Zero API keys. Fully on-device.
 
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../core/utils/document_ai_pipeline.dart';
@@ -131,16 +132,19 @@ class OfflineOcrService {
     return lines.join('\n');
   }
 
-  // ─── Reads image dimensions using the image package ──────────────────────
+  // ─── Reads image dimensions dynamically using native UI codec ─────────────
   static Future<(int, int)> _getImageSize(String path) async {
     try {
       final file = File(path);
       final bytes = await file.readAsBytes();
-      // Use file length as a proxy — no full decode needed for dimension estimation.
-      final fileLength = bytes.length;
-      if (fileLength < 1000) return (4000, 3000);
-      return (4000, 3000);
-    } catch (_) {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      final height = frame.image.height;
+      final width = frame.image.width;
+      debugPrint("OfflineOcrService: Detected image size ${width}x${height}");
+      return (height, width);
+    } catch (e) {
+      debugPrint("OfflineOcrService: Failed to detect image size: $e. Falling back.");
       return (4000, 3000);
     }
   }

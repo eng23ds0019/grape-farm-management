@@ -50,11 +50,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (mounted) setState(() => _saving = false);
   }
 
-  @overrid
-
-
-
-
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
           child: ListView(
             padding: const EdgeInsets.all(22),
             children: [

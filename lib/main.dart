@@ -12,6 +12,7 @@ import 'services/speech_service.dart';
 import 'services/storage_service.dart';
 import 'services/openai_service.dart';
 import 'services/gemini_service.dart';
+import 'services/fcm_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -84,6 +85,10 @@ void main() async {
                 firestoreService.setMockMode(false);
               }
               firestoreService.switchUser(authService.currentUid);
+              
+              if (authService.currentUid != null && !authService.useMock) {
+                FcmService.initialize(authService.currentUid!);
+              }
             }
             return firestoreService!;
           },
