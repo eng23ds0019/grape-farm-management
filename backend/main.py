@@ -304,9 +304,11 @@ Return ONLY this exact JSON (no markdown, no code blocks):
             "recommendedSpray": "None",
         }
     except Exception as e:
-        print(f"❌ Orchestration error: {e}")
+        error_detail = str(e)
+        print(f"❌ Orchestration error: {error_detail}")
+        # Return 200 with error embedded so Flutter can show it instead of crashing
         return {
-            "response": "I am having trouble reaching the reasoning engine right now. Please check your internet connection and try again.",
+            "response": f"Reasoning engine error: {error_detail[:120]}. Please check Render environment variables.",
             "diseaseRisk": "Low",
             "diseaseName": "None",
             "recommendedSpray": "None",
