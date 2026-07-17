@@ -185,7 +185,7 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
     final spray = result['recommendedSpray'] as String?;
 
     if ((risk == "High" || risk == "Medium") && disease != null && disease != "None") {
-      _dispatchDiseaseAlert(farmerId, risk, disease, spray ?? "Consult Agrivisor");
+      _dispatchDiseaseAlert(farmerId, risk ?? "Medium", disease ?? "Unknown Disease", spray ?? "Consult Agrivisor");
     }
 
     final responseText = result['response'] as String? ?? "Error generating voice response.";

@@ -1,46 +1,62 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 class DrakshaApiClient {
-  // Pointing to the live Render backend
-  static const String _baseUrl = "https://grape-farm-management.onrender.com/api/v1/chat/orchestrate";
+  static const String _baseUrl =
+      "https://grape-farm-management.onrender.com";
 
+  /// Main orchestration endpoint — voice and text queries
+  static Future<Map<String, dynamic>> sendQuery({
+    required String uid,
+    required String query,
+    String farmId = "",
+    String language = "en",
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse("$_baseUrl/api/v1/chat/orchestrate"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "uid": uid,
+              "query": query,
+              "farm_id": farmId,
+              "language": language,
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint("✅ Draksha AI response received");
+        return data;
+      } else {
+        debugPrint("⚠️ Draksha API error: ${response.statusCode}");
+        return _gracefulFallback();
+      }
+    } catch (e) {
+      debugPrint("❌ Draksha API network error: $e");
+      return _gracefulFallback();
+    }
+  }
+
+  /// Backward-compatible wrapper used by existing voice screen
   static Future<Map<String, dynamic>> sendVoiceQuery({
     required String uid,
     required String query,
-    required String weatherContext,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "uid": uid,
-          "query": query,
-          "weather_context": weatherContext,
-        }),
-      ).timeout(const Duration(seconds: 60));
+    String weatherContext = "",
+  }) =>
+      sendQuery(uid: uid, query: query);
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        debugPrint("Draksha API Error: ${response.statusCode} - ${response.body}");
-        return {
-          "response": "I could not reach the reasoning engine.",
-          "diseaseRisk": "Low",
-          "diseaseName": "None",
-          "recommendedSpray": "None"
-        };
-      }
-    } catch (e) {
-      debugPrint("Draksha API Network Error: $e");
-      return {
-        "response": "Network error reaching the reasoning engine.",
-        "diseaseRisk": "Low",
-        "diseaseName": "None",
-        "recommendedSpray": "None"
-      };
-    }
+  static Map<String, dynamic> _gracefulFallback() {
+    return {
+      "response":
+          "I am your Vineyard Manager. I am starting up — please try again in a moment.",
+      "diseaseRisk": "Low",
+      "diseaseName": "None",
+      "recommendedSpray": "None",
+      "cropStage": "Unknown",
+    };
   }
 }
