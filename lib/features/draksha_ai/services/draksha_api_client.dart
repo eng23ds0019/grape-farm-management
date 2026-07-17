@@ -20,7 +20,7 @@ class DrakshaApiClient {
           "query": query,
           "weather_context": weatherContext,
         }),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 60));
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
