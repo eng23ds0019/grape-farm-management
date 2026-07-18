@@ -48,8 +48,16 @@ def process_query(uid: str, query: str, farm_id: str = "", language: str = "en",
 
     # Resilient fallback to farmer profile coordinates
     if not lat or not lon:
-        lat = farmer.get("latitude") or farmer.get("lat") or farmer.get("latitude")
-        lon = farmer.get("longitude") or farmer.get("lon") or farmer.get("longitude")
+        lat = farmer.get("latitude") or farmer.get("lat")
+        lon = farmer.get("longitude") or farmer.get("lon")
+
+    # Safe float casting
+    try:
+        lat = float(lat) if lat is not None else None
+        lon = float(lon) if lon is not None else None
+    except (ValueError, TypeError):
+        lat = None
+        lon = None
 
     # ── Step 2: Weather ──
     weather = get_weather(location, lat, lon)
