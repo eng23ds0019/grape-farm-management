@@ -104,79 +104,54 @@ class DiseasePredictionService {
       return;
     }
 
-    debugPrint("DiseasePredictionService: Starting AI predictive advisory analysis...");
-
-    // 1. Gather Weather Forecast (via real API integration)
-    final weather = await WeatherService.getCurrentWeather("Nashik"); // Default to Nashik if not provided
-
-    // 2. Gather Spray History (past Spraying diary entries)
-    final List<DiaryEntryModel> sprayLogs = allEntries
-        .where((e) => e.workType.toLowerCase().contains('spray') || e.workType.toLowerCase().contains('fertilizer'))
-        .toList();
-    final String sprayHistory = sprayLogs
-        .take(10)
-        .map((e) => "- Date: ${e.date} | Crop Stage: ${e.cropStage} | Details: ${e.cleanedText} ${e.expenses.isNotEmpty ? '(Sprayed: ' + e.expenses.map((exp) => exp.itemName).join(', ') + ')' : ''}")
-        .join("\n");
-
-    // 3. Gather Disease History (any past disease mentions)
-    final diseaseKeywords = ['mildew', 'downy', 'powdery', 'beetle', 'thrips', 'udada', 'nusi', 'ರೋಗ', 'ಬೂದಿ', 'ಕೀಟ', 'बीमारी'];
-    final String diseaseHistory = allEntries
-        .where((e) => diseaseKeywords.any((kw) => e.cleanedText.toLowerCase().contains(kw) || e.originalText.toLowerCase().contains(kw)))
-        .take(5)
-        .map((e) => "- Date: ${e.date} | Notes: ${e.cleanedText}")
-        .join("\n");
-
-    // 4. Construct AI prompt
-    final String prompt = "You are an expert grape pathology advisor.\n"
-        "Analyze the current viticulture state to predict if there is a disease risk (Powdery Mildew, Downy Mildew, Flea Beetle, Thrips) in the next 5 days.\n\n"
-        "--- TODAY'S SPRAY LOG ---\n"
-        "Date: ${currentEntry.date}\n"
-        "Crop Stage: ${currentEntry.cropStage}\n"
-        "Logged Details: ${currentEntry.cleanedText} ${currentEntry.originalText}\n\n"
-        "--- CURRENT WEATHER CONDITIONS ---\n"
-        "${weather.toString()}\n\n"
-        "--- RECENT SPRAY HISTORY ---\n"
-        "${sprayHistory.isNotEmpty ? sprayHistory : 'No recent sprays logged.'}\n\n"
-        "--- RECENT DISEASE HISTORY ---\n"
-        "${diseaseHistory.isNotEmpty ? diseaseHistory : 'No disease history logged.'}\n\n"
-        "--- OUTBREAK CONDITIONS ---\n"
-        "- Powdery Mildew: Thrives in warm weather (25-32°C), high humidity (70-90% RH), and cloudy/shaded conditions.\n"
-        "- Downy Mildew: Requires free water (recent light rains/heavy dew) and high relative humidity (above 85%).\n\n"
-        "If weather conditions match outbreak conditions, and today's spray does NOT provide sufficient protection (or if today's spray IS the spray itself, assess if the risk is now low or remains high for untreated rows), warn the farmer.\n\n"
-        "Your output must be ONLY a clean JSON map with these keys. Do not include markdown blocks, ```json, or asterisks. Return exactly:\n"
-        "{\n"
-        "  \"riskLevel\": \"High\" or \"Medium\" or \"Low\",\n"
-        "  \"disease\": \"Disease Name\" (e.g., \"Powdery Mildew\" or \"Downy Mildew\" or \"None\"),\n"
-        "  \"recommendedSpray\": \"Fungicide/Chemical name & dosage\" (e.g. \"Sulfur 80 WP (2g/L)\"),\n"
-        "  \"days\": 5,\n"
-        "  \"explanation\": \"Short explanation of why the risk is flagged.\"\n"
-        "}";
+    debugPrint("DiseasePredictionService: Starting fast deterministic predictive advisory analysis...");
 
     try {
-      // Call Gemini API
-      final responseText = await GeminiService.getDirectResponse(prompt);
-      debugPrint("DiseasePredictionService: Raw Gemini response: '$responseText'");
+      // 1. Fetch Plot GPS Coordinates for precise weather
+      double? lat;
+      double? lon;
+      String location = "Nashik";
+      try {
+         final plotDoc = await FirebaseFirestore.instance.collection('users').doc(farmerId).collection('plots').doc(farmId).get();
+         if (plotDoc.exists) {
+            final data = plotDoc.data()!;
+            lat = data['latitude'] as double?;
+            lon = data['longitude'] as double?;
+            if (data['village'] != null && data['village'].toString().isNotEmpty) {
+               location = data['village'];
+            }
+         }
+      } catch (e) {
+         debugPrint("Could not fetch plot coords: $e");
+      }
 
-      // Extract JSON map
-      final Map<String, dynamic> prediction = Map<String, dynamic>.from(jsonDecode(_cleanJsonResponse(responseText)));
-      final String riskLevel = prediction['riskLevel'] ?? 'Low';
-      final String disease = prediction['disease'] ?? 'None';
+      // 2. Call our lightning-fast deterministic backend
+      final prediction = await DrakshaApiClient.predictDisease(
+        uid: farmerId,
+        location: location,
+        lat: lat,
+        lon: lon,
+      );
+
+      final String riskLevel = prediction['diseaseRisk'] ?? 'Low';
+      final String disease = prediction['diseaseName'] ?? 'None';
       final String recommendedSpray = prediction['recommendedSpray'] ?? 'None';
-      final String explanation = prediction['explanation'] ?? '';
+      final String reason = prediction['reason'] ?? '';
 
-      if (riskLevel == 'High' || riskLevel == 'Medium') {
+      // Only trigger notification on HIGH risk as requested by farmer
+      if (riskLevel == 'High') {
         final alertId = const Uuid().v4();
         final alertData = {
           'alertId': alertId,
           'disease': disease,
           'riskLevel': riskLevel,
           'recommendedSpray': recommendedSpray,
-          'explanation': explanation,
+          'explanation': reason,
           'createdAt': DateTime.now().toIso8601String(),
           'read': false,
         };
 
-        // 5. Store in Firestore under user collection: users/{farmerId}/alerts/{alertId}
+        // 3. Store in Firestore under user collection
         final db = FirebaseFirestore.instance;
         await db
             .collection('users')
@@ -187,25 +162,19 @@ class DiseasePredictionService {
 
         debugPrint("DiseasePredictionService: Saved alert $alertId to Firestore.");
 
-        // 6. Trigger Simulated FCM system tray push notification
-        final String title = riskLevel == 'High' ? "⚠️ Disease Alert" : "🔔 Disease Advisory";
-        final String body = "$riskLevel $disease Risk\nRecommended Spray: $recommendedSpray";
+        // 4. Trigger system tray push notification
+        final String title = "⚠️ URGENT Disease Alert: $disease";
+        final String body = "Real-time risk is High based on exact GPS weather and your spray history. Tap to see recommended spray: $recommendedSpray";
         await showSystemNotification(
           title: title,
           body: body,
           payload: jsonEncode(alertData),
         );
+      } else {
+        debugPrint("DiseasePredictionService: Risk is $riskLevel. No notification sent as per rules.");
       }
     } catch (e) {
       debugPrint("DiseasePredictionService: Error running prediction model: $e");
     }
-  }
-
-  static String _cleanJsonResponse(String text) {
-    var cleaned = text.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replaceAll(RegExp(r'^```(json)?|```$'), '').trim();
-    }
-    return cleaned;
   }
 }

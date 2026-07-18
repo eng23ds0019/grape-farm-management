@@ -12,6 +12,7 @@ class DrakshaApiClient {
     required String query,
     String farmId = "",
     String language = "en",
+    String? imageBase64,
   }) async {
     try {
       final response = await http
@@ -23,6 +24,7 @@ class DrakshaApiClient {
               "query": query,
               "farm_id": farmId,
               "language": language,
+              if (imageBase64 != null) "image_base64": imageBase64,
             }),
           )
           .timeout(const Duration(seconds: 60));
@@ -58,5 +60,36 @@ class DrakshaApiClient {
       "recommendedSpray": "None",
       "cropStage": "Unknown",
     };
+  }
+
+  /// Disease prediction endpoint — pure deterministic logic
+  static Future<Map<String, dynamic>> predictDisease({
+    required String uid,
+    String location = "Nashik",
+    double? lat,
+    double? lon,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse("$_baseUrl/api/v1/predict-disease"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "uid": uid,
+              "location": location,
+              if (lat != null) "lat": lat,
+              if (lon != null) "lon": lon,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {"diseaseRisk": "Low"};
+    } catch (e) {
+      debugPrint("❌ Draksha API disease prediction error: $e");
+      return {"diseaseRisk": "Low"};
+    }
   }
 }
