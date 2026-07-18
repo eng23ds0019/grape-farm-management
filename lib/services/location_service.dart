@@ -6,10 +6,13 @@ class LocationService {
   /// Prompts for permissions, fetches current location, and updates both the user's profile
   /// and all their crop records (plots) in Firestore with the precise GPS coordinates.
   static Future<void> checkAndSaveLocation(String farmerId) async {
+    debugPrint("LocationService: checkAndSaveLocation called for farmerId: $farmerId");
     if (farmerId.isEmpty) return;
 
     try {
+      debugPrint("LocationService: Checking if location services are enabled...");
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      debugPrint("LocationService: Location services enabled status: $serviceEnabled");
       if (!serviceEnabled) {
         debugPrint("LocationService: Location services are disabled.");
         return;

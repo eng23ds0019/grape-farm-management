@@ -11,6 +11,7 @@ import '../../../core/constants/colors.dart';
 import '../../../core/localization/language_notifier.dart';
 import '../../../services/firestore_service.dart';
 import '../../../services/speech_service.dart';
+import '../../../services/location_service.dart';
 import '../services/draksha_api_client.dart';
 
 class ChatMessage {
@@ -72,6 +73,25 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
       text: "Hello! I am Draksha AI, your Vineyard Manager. How can I assist you with your plot today?",
       isUser: false,
     ));
+
+    // Request and update coordinates on opening assistant
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initLocationUpdate();
+    });
+  }
+
+  Future<void> _initLocationUpdate() async {
+    try {
+      final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+      final farmerId = firestoreService.cachedFarmer?.farmerId ?? "";
+      if (farmerId.isNotEmpty) {
+        await LocationService.checkAndSaveLocation(farmerId);
+        // Refresh local cache to ensure latest coords are saved/synced
+        await firestoreService.syncOfflineData(farmerId);
+      }
+    } catch (e) {
+      debugPrint("VoiceEngineScreen location update error: $e");
+    }
   }
 
   @override
