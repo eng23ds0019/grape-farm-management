@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class LocationService {
   /// Prompts for permissions, fetches current location, and updates both the user's profile
@@ -10,6 +11,18 @@ class LocationService {
     if (farmerId.isEmpty) return;
 
     try {
+      // 0. Request notification permissions explicitly
+      try {
+        final notificationStatus = await Permission.notification.status;
+        debugPrint("LocationService: Current notification permission status: $notificationStatus");
+        if (notificationStatus.isDenied) {
+          debugPrint("LocationService: Requesting notification permission...");
+          await Permission.notification.request();
+        }
+      } catch (e) {
+        debugPrint("LocationService: Notification permission request error: $e");
+      }
+
       // 1. Request/Check Permissions FIRST so user gets prompted
       LocationPermission permission = await Geolocator.checkPermission();
       debugPrint("LocationService: Current permission status: $permission");
@@ -24,7 +37,8 @@ class LocationService {
       }
 
       if (permission == LocationPermission.deniedForever) {
-        debugPrint("LocationService: Location permissions are permanently denied.");
+        debugPrint("LocationService: Location permissions are permanently denied. Redirecting to App Settings.");
+        await Geolocator.openAppSettings();
         return;
       }
 

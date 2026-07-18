@@ -32,7 +32,7 @@ def get_weather(location: str = "Nashik", lat: Optional[float] = None, lon: Opti
         if resp.status_code == 200:
             data = resp.json()
             result = {
-                "location": location,
+                "location": data.get("name", location),
                 "temperature": round(data["main"]["temp"], 1),
                 "feels_like": round(data["main"]["feels_like"], 1),
                 "humidity": data["main"]["humidity"],
