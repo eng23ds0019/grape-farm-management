@@ -34,19 +34,35 @@ def retrieve_farm_memory(uid: str) -> dict:
         farmer_doc = db.collection("users").document(uid).get()
         farmer = farmer_doc.to_dict() if farmer_doc.exists else {}
 
-        # Plots
-        plots = [p.to_dict() for p in db.collection("users").document(uid).collection("plots").stream()]
+        # Plots (Try cropRecords first, fallback to plots)
+        plots = []
+        try:
+            plots = [p.to_dict() for p in db.collection("users").document(uid).collection("cropRecords").stream()]
+        except Exception:
+            pass
+        if not plots:
+            try:
+                plots = [p.to_dict() for p in db.collection("users").document(uid).collection("plots").stream()]
+            except Exception:
+                pass
 
-        # Diary (last 20 entries)
+        # Diary (Try diaryEntries first, fallback to diary)
         diaries = []
         try:
             diaries = [
                 d.to_dict()
-                for d in db.collection("users").document(uid).collection("diary")
+                for d in db.collection("users").document(uid).collection("diaryEntries")
                 .order_by("date", direction=fs.Query.DESCENDING).limit(20).stream()
             ]
         except Exception:
-            pass
+            try:
+                diaries = [
+                    d.to_dict()
+                    for d in db.collection("users").document(uid).collection("diary")
+                    .order_by("date", direction=fs.Query.DESCENDING).limit(20).stream()
+                ]
+            except Exception:
+                pass
 
         # Expenses (last 15)
         expenses = []

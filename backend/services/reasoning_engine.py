@@ -40,11 +40,16 @@ def process_query(uid: str, query: str, farm_id: str = "", language: str = "en",
         target_plot = plots[0] # Default to first plot
         if farm_id:
             for p in plots:
-                if p.get("id") == farm_id or p.get("name") == farm_id:
+                if p.get("id") == farm_id or p.get("name") == farm_id or p.get("farmId") == farm_id:
                     target_plot = p
                     break
-        lat = target_plot.get("latitude")
-        lon = target_plot.get("longitude")
+        lat = target_plot.get("latitude") or target_plot.get("lat")
+        lon = target_plot.get("longitude") or target_plot.get("lon")
+
+    # Resilient fallback to farmer profile coordinates
+    if not lat or not lon:
+        lat = farmer.get("latitude") or farmer.get("lat") or farmer.get("latitude")
+        lon = farmer.get("longitude") or farmer.get("lon") or farmer.get("longitude")
 
     # ── Step 2: Weather ──
     weather = get_weather(location, lat, lon)

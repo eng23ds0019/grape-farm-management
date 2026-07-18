@@ -12,6 +12,7 @@ import '../../../widgets/app_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/diary_entry_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../services/location_service.dart';
 
 // Import features to embed inside bottom navigation tabs
 import 'diary_history_screen.dart';
@@ -38,7 +39,22 @@ class _HomeDashboardState extends State<HomeDashboard> {
       Future.delayed(const Duration(seconds: 5), () {
         _triggerTestNotification();
       });
+      _initLocation();
     });
+  }
+
+  Future<void> _initLocation() async {
+    try {
+      final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+      final farmerId = firestoreService.cachedFarmer?.farmerId ?? FirebaseAuth.instance.currentUser?.uid ?? "";
+      if (farmerId.isNotEmpty) {
+        await LocationService.checkAndSaveLocation(farmerId);
+        // Refresh local cache to ensure latest coords are saved/synced
+        await firestoreService.syncOfflineData(farmerId);
+      }
+    } catch (e) {
+      debugPrint("HomeDashboard location init error: $e");
+    }
   }
 
   Future<void> _handleBackPress(bool didPop) async {
