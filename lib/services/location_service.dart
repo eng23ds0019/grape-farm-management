@@ -10,19 +10,15 @@ class LocationService {
     if (farmerId.isEmpty) return;
 
     try {
-      debugPrint("LocationService: Checking if location services are enabled...");
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      debugPrint("LocationService: Location services enabled status: $serviceEnabled");
-      if (!serviceEnabled) {
-        debugPrint("LocationService: Location services are disabled.");
-        return;
-      }
-
+      // 1. Request/Check Permissions FIRST so user gets prompted
       LocationPermission permission = await Geolocator.checkPermission();
+      debugPrint("LocationService: Current permission status: $permission");
+      
       if (permission == LocationPermission.denied) {
+        debugPrint("LocationService: Requesting location permission...");
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          debugPrint("LocationService: Location permissions denied.");
+          debugPrint("LocationService: Location permissions denied by user.");
           return;
         }
       }
@@ -32,6 +28,19 @@ class LocationService {
         return;
       }
 
+      debugPrint("LocationService: Permission granted. Checking if GPS/Location services are enabled globally...");
+      
+      // 2. Now check if GPS is toggled on globally
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      debugPrint("LocationService: Location services enabled status: $serviceEnabled");
+      if (!serviceEnabled) {
+        debugPrint("LocationService: GPS is turned off globally. Prompting user to enable it.");
+        // Open device settings so user can toggle GPS on
+        await Geolocator.openLocationSettings();
+        return;
+      }
+
+      debugPrint("LocationService: Getting current position...");
       final Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
