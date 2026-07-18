@@ -10,38 +10,14 @@ class GrapesFarmerLoadingWidget extends StatefulWidget {
 
 class _GrapesFarmerLoadingWidgetState extends State<GrapesFarmerLoadingWidget> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  int _quoteIndex = 0;
-  
-  final List<String> _farmerQuotes = [
-    "Patil, your vines are blooming... wealth is on the way! 🍇💰",
-    "Analyzing soil and micro-climate for your bumper yield... 🌱📊",
-    "Grapes are ripening, export quality profits are climbing! 🍇🚀",
-    "Draksha AI is checking weather stations for your plot... 🌦️🎯",
-    "Farming smart, earning big, and enjoying life! 🍇🏡😎"
-  ];
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-
-    _scaleAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-
-    // Rotate quotes every 3 seconds
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 3));
-      if (!mounted) return false;
-      setState(() {
-        _quoteIndex = (_quoteIndex + 1) % _farmerQuotes.length;
-      });
-      return true;
-    });
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
   }
 
   @override
@@ -52,66 +28,108 @@ class _GrapesFarmerLoadingWidgetState extends State<GrapesFarmerLoadingWidget> w
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.primaryGreen.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.primaryGreen.withValues(alpha: 0.3), width: 1.5),
-      ),
-      child: Row(
-        children: [
-          // Pulsing grapes and farmer icon
-          ScaleTransition(
-            scale: _scaleAnimation,
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: const BoxDecoration(
-                color: AppColors.primaryGreen,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.nature_people,
-                color: Colors.white,
-                size: 28,
-              ),
-            ),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: SizedBox(
+          width: 80,
+          height: 100,
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return CustomPaint(
+                painter: _GrapesLoadingPainter(_controller.value),
+              );
+            },
           ),
-          const SizedBox(width: 14),
-          // Animated quotes text
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "DRAKSHA AI ANALYZING...",
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryGreen,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 550),
-                  child: Text(
-                    _farmerQuotes[_quoteIndex],
-                    key: ValueKey<int>(_quoteIndex),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
+  }
+}
+
+class _GrapesLoadingPainter extends CustomPainter {
+  final double animationValue;
+  _GrapesLoadingPainter(this.animationValue);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double centerX = size.width / 2;
+    
+    // Draw Leaf/Stem at the top
+    final Paint stemPaint = Paint()
+      ..color = AppColors.primaryGreen
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+
+    final Path stemPath = Path()
+      ..moveTo(centerX, 20)
+      ..quadraticBezierTo(centerX - 8, 8, centerX - 12, 12);
+    canvas.drawPath(stemPath, stemPaint);
+
+    final Paint leafPaint = Paint()
+      ..color = AppColors.primaryGreen.withValues(alpha: 0.8)
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(centerX + 6, 14), width: 12, height: 8),
+      leafPaint,
+    );
+
+    // Grapes layout coordinates: 6 grapes in a triangle bunch
+    // Top row: 3 grapes
+    // Middle row: 2 grapes
+    // Bottom row: 1 grape
+    final List<Offset> grapeOffsets = [
+      // Top Row (3)
+      Offset(centerX - 16, 36),
+      Offset(centerX, 34),
+      Offset(centerX + 16, 36),
+      // Middle Row (2)
+      Offset(centerX - 8, 52),
+      Offset(centerX + 8, 52),
+      // Bottom Row (1)
+      Offset(centerX, 68),
+    ];
+
+    // Grape paint color: Premium Grape Purple
+    final Color grapeColor = const Color(0xFF6A1B9A);
+
+    for (int i = 0; i < grapeOffsets.length; i++) {
+      // Calculate a staggered delay for each grape pulse
+      final double offset = (i / grapeOffsets.length) * 0.5;
+      double t = (animationValue - offset) % 1.0;
+      
+      // Smooth sine pulse curve
+      double pulse = 1.0 + 0.25 * (1.0 - (t - 0.5).abs() * 2.0);
+      double opacity = 0.5 + 0.5 * (1.0 - (t - 0.5).abs() * 2.0);
+
+      final Paint grapePaint = Paint()
+        ..color = grapeColor.withValues(alpha: opacity)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(
+        grapeOffsets[i],
+        8.0 * pulse,
+        grapePaint,
+      );
+
+      // Add a subtle glossy highlight on each grape
+      final Paint highlightPaint = Paint()
+        ..color = Colors.white.withValues(alpha: opacity * 0.4)
+        ..style = PaintingStyle.fill;
+      
+      canvas.drawCircle(
+        Offset(grapeOffsets[i].dx - 3 * pulse, grapeOffsets[i].dy - 3 * pulse),
+        2.5 * pulse,
+        highlightPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GrapesLoadingPainter oldDelegate) {
+    return oldDelegate.animationValue != animationValue;
   }
 }

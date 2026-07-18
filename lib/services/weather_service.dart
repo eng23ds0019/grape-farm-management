@@ -9,6 +9,7 @@ class WeatherData {
   final double windSpeed;
   final String condition;
   final String forecast;
+  final String location;
 
   WeatherData({
     required this.temperature,
@@ -17,6 +18,7 @@ class WeatherData {
     required this.windSpeed,
     required this.condition,
     required this.forecast,
+    required this.location,
   });
 
   Map<String, dynamic> toJson() {
@@ -27,12 +29,13 @@ class WeatherData {
       'windSpeed': windSpeed,
       'condition': condition,
       'forecast': forecast,
+      'location': location,
     };
   }
 
   @override
   String toString() {
-    return "Temp: ${temperature.toStringAsFixed(1)}°C, Humidity: $humidity%, Rain: ${rainfall.toStringAsFixed(1)}mm, Wind: ${windSpeed.toStringAsFixed(1)}km/h, Condition: $condition, Forecast: $forecast";
+    return "Location: $location, Temp: ${temperature.toStringAsFixed(1)}°C, Humidity: $humidity%, Rain: ${rainfall.toStringAsFixed(1)}mm, Wind: ${windSpeed.toStringAsFixed(1)}km/h, Condition: $condition, Forecast: $forecast";
   }
 }
 
@@ -86,6 +89,7 @@ class WeatherService {
           windSpeed: wind,
           condition: condition,
           forecast: "Similar conditions expected for the next 24 hours.",
+          location: data['name']?.toString() ?? location,
         );
       } else {
         debugPrint("WeatherService: OpenWeather API failed with ${response.statusCode}: ${response.body}");
@@ -108,6 +112,7 @@ class WeatherService {
       windSpeed: 12.0,
       condition: "Cloudy",
       forecast: "High humidity and cloudy skies. Favorable for mildew development.",
+      location: location,
     );
   }
 }

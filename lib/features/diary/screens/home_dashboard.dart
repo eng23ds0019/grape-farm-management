@@ -343,14 +343,13 @@ class _HomeDashboardState extends State<HomeDashboard> {
                                       : "Location services starting..."),
                               style: const TextStyle(
                                 color: AppColors.white,
-                                fontSize: 14,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             if (!_loadingWeather && _weatherData != null) ...[
                               const SizedBox(height: 2),
                               Text(
-                                "Location: ${_weatherData!.forecast.contains('mildew') ? 'GPS coordinates' : 'Local farm'}",
+                                "Location: ${_weatherData!.location}",
                                 style: TextStyle(
                                   color: AppColors.softYellow.withValues(alpha: 0.9),
                                   fontSize: 11,

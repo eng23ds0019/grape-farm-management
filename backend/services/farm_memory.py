@@ -14,11 +14,11 @@ def retrieve_farm_memory(uid: str) -> dict:
     if not uid:
         return _empty_memory()
 
-    # Cache check
+    # Cache check (Disabled to ensure real-time updates)
     cache_key = f"memory_{uid}"
-    cached = _cache.get(cache_key)
-    if cached and (time.time() - cached["_ts"]) < _cache_ttl:
-        return cached["data"]
+    # cached = _cache.get(cache_key)
+    # if cached and (time.time() - cached["_ts"]) < _cache_ttl:
+    #     return cached["data"]
 
     try:
         import firebase_admin
