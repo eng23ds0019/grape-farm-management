@@ -14,14 +14,19 @@ _cache = {}
 _cache_ttl = 1800  # 30 minutes
 
 
-def get_weather(location: str = "Nashik") -> dict:
-    cache_key = location.lower()
+def get_weather(location: str = "Nashik", lat: Optional[float] = None, lon: Optional[float] = None) -> dict:
+    # Use coordinates if available for caching and querying
+    cache_key = f"{lat},{lon}" if lat and lon else location.lower()
     cached = _cache.get(cache_key)
     if cached and (time.time() - cached["_ts"]) < _cache_ttl:
         return cached["data"]
 
     try:
-        url = f"{BASE_URL}/weather?q={location}&appid={WEATHER_API_KEY}&units=metric"
+        if lat and lon:
+            url = f"{BASE_URL}/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
+        else:
+            url = f"{BASE_URL}/weather?q={location}&appid={WEATHER_API_KEY}&units=metric"
+            
         resp = requests.get(url, timeout=5)
 
         if resp.status_code == 200:

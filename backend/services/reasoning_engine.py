@@ -12,7 +12,7 @@ from services.weather_service import get_weather, format_for_prompt
 from services.disease_engine import calculate_disease_risk
 
 
-def process_query(uid: str, query: str, farm_id: str = "", language: str = "en") -> dict:
+def process_query(uid: str, query: str, farm_id: str = "", language: str = "en", image_base64: str = None) -> dict:
     """
     Full pipeline:
     1. Farm Memory → 2. Weather → 3. Disease Risk → 4. Crop Knowledge → 5. LLM
@@ -33,8 +33,21 @@ def process_query(uid: str, query: str, farm_id: str = "", language: str = "en")
     expenses = memory.get("expenses", [])
     chats = memory.get("chats", [])
 
+    # Find the specific plot for precise GPS coordinates
+    lat = None
+    lon = None
+    if plots:
+        target_plot = plots[0] # Default to first plot
+        if farm_id:
+            for p in plots:
+                if p.get("id") == farm_id or p.get("name") == farm_id:
+                    target_plot = p
+                    break
+        lat = target_plot.get("latitude")
+        lon = target_plot.get("longitude")
+
     # ── Step 2: Weather ──
-    weather = get_weather(location)
+    weather = get_weather(location, lat, lon)
     weather_text = format_for_prompt(weather)
 
     # ── Step 3: Disease Risk Engine ──
@@ -55,10 +68,9 @@ def process_query(uid: str, query: str, farm_id: str = "", language: str = "en")
     expense_summary = _format_list(expenses[:5], ["date", "category", "amount", "description"])
     chat_history = _format_chats(chats)
 
-    system_prompt = f"""You are Draksha AI, an expert 24×7 Vineyard Manager for Indian grape farmers.
-You are NOT a chatbot. You are a real farm supervisor who knows this farmer's history.
+    system_prompt = f"""You are Draksha AI, a Principal Agritech Scientist and expert 24×7 Vineyard Manager for Indian grape farmers.
+You are NOT a chatbot. You are a professional farm supervisor who knows this farmer's precise history.
 Always respond in the SAME LANGUAGE as the user's question (Kannada, Hindi, or English).
-Be concise, expert, and conversational. Never use asterisks, bullet points, or markdown in spoken responses.
 
 FARMER PROFILE:
 - Name: {farmer_name}
@@ -74,7 +86,7 @@ RECENT EXPENSES:
 CONVERSATION HISTORY:
 {chat_history}
 
-LIVE WEATHER:
+LIVE PRECISE WEATHER (from Plot GPS coordinates):
 {weather_text}
 
 DISEASE ENGINE RESULT (computed deterministically):
@@ -87,20 +99,24 @@ AGRICULTURAL KNOWLEDGE:
 {knowledge[:3000]}
 
 RULES:
-1. Act as a proactive farm supervisor. Use the farmer's real data to personalize the answer.
-2. Never say "I am an AI" or "I don't know." Never say "I am trained on..."
-3. If disease risk is High, proactively warn and give exact spray.
-4. If you cannot answer from the knowledge or farm data, say: "I know about your farm and grape cultivation. I will improve my answer as I learn more about your specific situation."
-5. Keep the spoken response under 120 words. Clear and actionable.
+1. Act as a proactive, highly analytical farm supervisor. 
+2. Combine the permanent Agricultural Knowledge with the farmer's personal activity history.
+3. Analyze the situation, reason through the problem, recommend a solution, and explain WHY. Provide actionable advice.
+4. Never give generic advice. Use exact plot history, weather, and crop stage.
+5. Never say "I am an AI", "I am a language model", or "I don't know."
+6. You MAY use Markdown formatting (bold, bullet points) to structure your response beautifully.
+7. If an image is provided by the farmer, analyze it meticulously alongside the weather and history.
 
-Return ONLY this exact JSON (no markdown, no code fences):
-{{"response": "Your expert spoken answer here", "diseaseRisk": "{disease['diseaseRisk']}", "diseaseName": "{disease['diseaseName']}", "recommendedSpray": "{disease['recommendedSpray']}", "cropStage": "{crop_stage}"}}"""
+Return ONLY this exact JSON (no markdown fences around the JSON itself):
+{{"response": "Your expert, markdown-formatted answer here. Explain your reasoning and give actionable steps.", "diseaseRisk": "{disease['diseaseRisk']}", "diseaseName": "{disease['diseaseName']}", "recommendedSpray": "{disease['recommendedSpray']}", "cropStage": "{crop_stage}"}}"""
 
     user_message = f"Farmer question: {query}"
+    if image_base64:
+        user_message += " [An image is attached to this request. Analyze it.]"
 
     # ── Step 6: LLM Generation ──
     llm = get_llm_provider()
-    raw = llm.generate(system_prompt=system_prompt, user_message=user_message)
+    raw = llm.generate(system_prompt=system_prompt, user_message=user_message, image_base64=image_base64)
 
     # ── Step 7: Parse Response ──
     result = _parse_llm_response(raw, disease, crop_stage)

@@ -92,6 +92,7 @@ class ChatRequest(BaseModel):
     farm_id: Optional[str] = ""
     language: Optional[str] = "en"
     weather_context: Optional[str] = ""   # kept for backward compat
+    image_base64: Optional[str] = None
 
 
 @app.post("/api/v1/chat/orchestrate")
@@ -106,6 +107,7 @@ async def orchestrate(req: ChatRequest):
             query=req.query,
             farm_id=req.farm_id or "",
             language=req.language or "en",
+            image_base64=req.image_base64
         )
         return result
     except Exception as e:
