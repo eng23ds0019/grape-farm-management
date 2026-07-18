@@ -136,14 +136,14 @@ async def weather_endpoint(location: str):
 # ════════════════════════════════════════════════
 class DiseaseRequest(BaseModel):
     uid: str
-    location: Optional[str] = "Nashik"
+    location: Optional[str] = "Sangli"
     lat: Optional[float] = None
     lon: Optional[float] = None
 
 
 @app.post("/api/v1/predict-disease")
 async def predict_disease(req: DiseaseRequest):
-    weather = get_weather(req.location or "Nashik", req.lat, req.lon)
+    weather = get_weather(req.location or "Sangli", req.lat, req.lon)
     memory = retrieve_farm_memory(req.uid)
     result = calculate_disease_risk(weather, memory.get("diaries", []), memory.get("plots", []))
     result["weather"] = format_for_prompt(weather)

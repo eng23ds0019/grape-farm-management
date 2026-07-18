@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/diary_entry_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../services/location_service.dart';
+import '../../../services/weather_service.dart';
 
 // Import features to embed inside bottom navigation tabs
 import 'diary_history_screen.dart';
@@ -31,6 +32,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   int _currentTab = 0;
   String _selectedFarmId = "plot_1";
   DateTime? _lastPressedAt;
+  WeatherData? _weatherData;
+  bool _loadingWeather = false;
 
   @override
   void initState() {
@@ -52,8 +55,41 @@ class _HomeDashboardState extends State<HomeDashboard> {
         // Refresh local cache to ensure latest coords are saved/synced
         await firestoreService.syncOfflineData(farmerId);
       }
+      // Load weather regardless (uses cached profile location if location service check returns)
+      _fetchActivePlotWeather();
     } catch (e) {
       debugPrint("HomeDashboard location init error: $e");
+      _fetchActivePlotWeather();
+    }
+  }
+
+  Future<void> _fetchActivePlotWeather() async {
+    try {
+      final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+      String targetLocation = "Sangli"; // default fallback instead of Nashik
+      
+      // Try to read coordinate location from active plot
+      if (firestoreService.cachedFarms.isNotEmpty) {
+        final activeFarm = firestoreService.cachedFarms.firstWhere(
+          (f) => f.farmId == _selectedFarmId,
+          orElse: () => firestoreService.cachedFarms.first,
+        );
+        if (activeFarm.location.isNotEmpty) {
+          targetLocation = activeFarm.location;
+        }
+      } else if (firestoreService.cachedFarmer?.village.isNotEmpty ?? false) {
+        targetLocation = firestoreService.cachedFarmer!.village;
+      }
+
+      setState(() => _loadingWeather = true);
+      final weather = await WeatherService.getCurrentWeather(targetLocation);
+      setState(() {
+        _weatherData = weather;
+        _loadingWeather = false;
+      });
+    } catch (e) {
+      debugPrint("Failed loading dashboard weather: $e");
+      setState(() => _loadingWeather = false);
     }
   }
 
@@ -175,6 +211,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                            setState(() {
                             _selectedFarmId = newValue;
                           });
+                          _fetchActivePlotWeather();
                         }
                       },
                       items: firestoreService.cachedFarms.map<DropdownMenuItem<String>>((farm) {
@@ -266,6 +303,80 @@ class _HomeDashboardState extends State<HomeDashboard> {
                             fontWeight: FontWeight.bold,
                             color: AppColors.white,
                           ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    height: 1,
+                    color: AppColors.white.withValues(alpha: 0.2),
+                  ),
+                  const SizedBox(height: 12),
+                  // Live Weather Widget Section
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _loadingWeather 
+                                  ? "FETCHING WEATHER..." 
+                                  : (_weatherData != null 
+                                      ? "WEATHER: ${_weatherData!.condition.toUpperCase()}" 
+                                      : "WEATHER DATA"),
+                              style: TextStyle(
+                                color: AppColors.white.withValues(alpha: 0.8),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _loadingWeather
+                                  ? "Loading micro-climate GPS forecast..."
+                                  : (_weatherData != null
+                                      ? "Temp: ${_weatherData!.temperature.toStringAsFixed(1)}°C | Humid: ${_weatherData!.humidity}%"
+                                      : "Location services starting..."),
+                              style: const TextStyle(
+                                color: AppColors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (!_loadingWeather && _weatherData != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                "Location: ${_weatherData!.forecast.contains('mildew') ? 'GPS coordinates' : 'Local farm'}",
+                                style: TextStyle(
+                                  color: AppColors.softYellow.withValues(alpha: 0.9),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ]
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Weather Condition Icon
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.white.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          _weatherData?.condition.toLowerCase().contains('rain') ?? false
+                              ? Icons.umbrella
+                              : (_weatherData?.condition.toLowerCase().contains('cloud') ?? false
+                                  ? Icons.cloud
+                                  : Icons.wb_sunny),
+                          color: AppColors.softYellow,
+                          size: 24,
                         ),
                       ),
                     ],

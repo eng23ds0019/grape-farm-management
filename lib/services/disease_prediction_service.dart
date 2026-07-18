@@ -110,9 +110,9 @@ class DiseasePredictionService {
       // 1. Fetch Plot GPS Coordinates for precise weather
       double? lat;
       double? lon;
-      String location = "Nashik";
+      String location = "Sangli";
       try {
-         final plotDoc = await FirebaseFirestore.instance.collection('users').doc(farmerId).collection('plots').doc(farmId).get();
+         final plotDoc = await FirebaseFirestore.instance.collection('users').doc(farmerId).collection('cropRecords').doc(farmId).get();
          if (plotDoc.exists) {
             final data = plotDoc.data()!;
             lat = data['latitude'] as double?;

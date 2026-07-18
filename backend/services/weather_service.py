@@ -14,7 +14,7 @@ _cache = {}
 _cache_ttl = 1800  # 30 minutes
 
 
-def get_weather(location: str = "Nashik", lat: Optional[float] = None, lon: Optional[float] = None) -> dict:
+def get_weather(location: str = "Sangli", lat: Optional[float] = None, lon: Optional[float] = None) -> dict:
     # Use coordinates if available for caching and querying
     cache_key = f"{lat},{lon}" if lat and lon else location.lower()
     cached = _cache.get(cache_key)

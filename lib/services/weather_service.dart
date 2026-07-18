@@ -43,7 +43,7 @@ class WeatherService {
   /// Retrieves weather for a location string (e.g. "Nashik", "Sangli"). 
   /// If API key is missing or fails, falls back to a simulated forecast.
   static Future<WeatherData> getCurrentWeather(String location) async {
-    if (location.isEmpty) location = "Nashik";
+    if (location.isEmpty) location = "Sangli"; // Fallback to Sangli instead of Nashik
 
     if (_apiKey == "YOUR_OPENWEATHERMAP_API_KEY") {
       debugPrint("WeatherService: No API key set. Using simulated weather for $location.");
@@ -51,7 +51,19 @@ class WeatherService {
     }
 
     try {
-      final url = Uri.parse("$_baseUrl/weather?q=$location&appid=$_apiKey&units=metric");
+      Uri url;
+      if (location.contains(',')) {
+        final parts = location.split(',');
+        final lat = double.tryParse(parts[0].trim());
+        final lon = double.tryParse(parts[1].trim());
+        if (lat != null && lon != null) {
+          url = Uri.parse("$_baseUrl/weather?lat=$lat&lon=$lon&appid=$_apiKey&units=metric");
+        } else {
+          url = Uri.parse("$_baseUrl/weather?q=$location&appid=$_apiKey&units=metric");
+        }
+      } else {
+        url = Uri.parse("$_baseUrl/weather?q=$location&appid=$_apiKey&units=metric");
+      }
       final response = await http.get(url);
 
       if (response.statusCode == 200) {

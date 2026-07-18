@@ -12,6 +12,7 @@ import '../../../core/localization/language_notifier.dart';
 import '../../../services/firestore_service.dart';
 import '../../../services/speech_service.dart';
 import '../../../services/location_service.dart';
+import '../../../widgets/grapes_farmer_loading_widget.dart';
 import '../services/draksha_api_client.dart';
 
 class ChatMessage {
@@ -325,10 +326,7 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
           ),
           
           if (_isProcessing)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(color: AppColors.primaryGreen),
-            ),
+            const GrapesFarmerLoadingWidget(),
             
           // Selected Image Preview Area
           if (_selectedImage != null)

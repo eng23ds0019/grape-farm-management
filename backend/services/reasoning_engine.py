@@ -24,9 +24,9 @@ def process_query(uid: str, query: str, farm_id: str = "", language: str = "en",
     memory = retrieve_farm_memory(uid)
     farmer = memory.get("farmer", {})
     farmer_name = farmer.get("name", "Farmer")
-    location = farmer.get("location", farmer.get("village", "Nashik"))
+    location = farmer.get("location", farmer.get("village", "Sangli"))
     if not location:
-        location = "Nashik"
+        location = "Sangli"
 
     plots = memory.get("plots", [])
     diaries = memory.get("diaries", [])

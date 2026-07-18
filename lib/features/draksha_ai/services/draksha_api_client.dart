@@ -65,7 +65,7 @@ class DrakshaApiClient {
   /// Disease prediction endpoint — pure deterministic logic
   static Future<Map<String, dynamic>> predictDisease({
     required String uid,
-    String location = "Nashik",
+    String location = "Sangli",
     double? lat,
     double? lon,
   }) async {
