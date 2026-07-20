@@ -683,9 +683,9 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
     final videoPath = _getVideoPathForDisease(message.diseaseName);
     
     // Localization of titles
-    final String labelDisease = widget.langCode == 'kn-IN' ? 'ರೋಗ ಪತ್ತೆ' : (widget.langCode == 'hi-IN' ? 'रोग पहचान' : 'Disease');
-    final String labelSeverity = widget.langCode == 'kn-IN' ? 'ತೀವ್ರತೆ' : (widget.langCode == 'hi-IN' ? 'तीव्रता' : 'Severity');
-    final String labelConfidence = widget.langCode == 'kn-IN' ? 'ಖಚಿತತೆ' : (widget.langCode == 'hi-IN' ? 'विश्वास' : 'Confidence');
+    final String labelDisease = langCode == 'kn-IN' ? 'ರೋಗ ಪತ್ತೆ' : (langCode == 'hi-IN' ? 'रोग पहचान' : 'Disease');
+    final String labelSeverity = langCode == 'kn-IN' ? 'ತೀವ್ರತೆ' : (langCode == 'hi-IN' ? 'तीव्रता' : 'Severity');
+    final String labelConfidence = langCode == 'kn-IN' ? 'ಖಚಿತತೆ' : (langCode == 'hi-IN' ? 'विश्वास' : 'Confidence');
     
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -809,7 +809,7 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
                           _speak(clean, langCode);
                         },
                         icon: const Icon(Icons.volume_up, size: 16),
-                        label: Text(widget.langCode == 'kn-IN' ? 'ಕೇಳಿ' : (widget.langCode == 'hi-IN' ? 'सुनें' : 'Speak')),
+                        label: Text(langCode == 'kn-IN' ? 'ಕೇಳಿ' : (langCode == 'hi-IN' ? 'सुनें' : 'Speak')),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primaryGreen,
                           foregroundColor: Colors.white,
@@ -823,7 +823,7 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
                           _micPulseController.stop();
                         },
                         icon: const Icon(Icons.volume_off, size: 16),
-                        label: Text(widget.langCode == 'kn-IN' ? 'ನಿಲ್ಲಿಸಿ' : (widget.langCode == 'hi-IN' ? 'रोकें' : 'Stop')),
+                        label: Text(langCode == 'kn-IN' ? 'ನಿಲ್ಲಿಸಿ' : (langCode == 'hi-IN' ? 'रोकें' : 'Stop')),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.grey[700],
                           side: BorderSide(color: Colors.grey[400]!),
@@ -834,13 +834,13 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
                       ElevatedButton.icon(
                         onPressed: () {
                           // Prefill follow-up question
-                          _textController.text = widget.langCode == 'kn-IN' 
+                          _textController.text = langCode == 'kn-IN' 
                               ? "ನಾಳೆ ಮಳೆ ಬಂದರೆ ಏನಾಗಬಹುದು?" 
-                              : (widget.langCode == 'hi-IN' ? "अगर कल बारिश हो जाए तो क्या होगा?" : "What if it rains tomorrow?");
+                              : (langCode == 'hi-IN' ? "अगर कल बारिश हो जाए तो क्या होगा?" : "What if it rains tomorrow?");
                           _scrollToBottom();
                         },
                         icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                        label: Text(widget.langCode == 'kn-IN' ? 'ಮುಂದಿನ ಪ್ರಶ್ನೆ' : (widget.langCode == 'hi-IN' ? 'अगला प्रश्न' : 'Follow-up')),
+                        label: Text(langCode == 'kn-IN' ? 'ಮುಂದಿನ ಪ್ರಶ್ನೆ' : (langCode == 'hi-IN' ? 'अगला प्रश्न' : 'Follow-up')),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.accentPurple,
                           foregroundColor: Colors.white,
