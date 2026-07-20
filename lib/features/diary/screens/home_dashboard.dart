@@ -12,8 +12,11 @@ import '../../../widgets/app_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/diary_entry_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 import '../../../services/location_service.dart';
 import '../../../services/weather_service.dart';
+import '../../../widgets/live_vineyard_hero_card.dart';
+import '../../draksha_ai/services/draksha_api_client.dart';
 
 // Import features to embed inside bottom navigation tabs
 import 'diary_history_screen.dart';
@@ -35,6 +38,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
   WeatherData? _weatherData;
   bool _loadingWeather = false;
 
+  Map<String, dynamic>? _cachedPrediction;
+  String _lastUpdatedText = "Last updated just now";
+  bool _isOffline = false;
+
   @override
   void initState() {
     super.initState();
@@ -55,42 +62,127 @@ class _HomeDashboardState extends State<HomeDashboard> {
         // Refresh local cache to ensure latest coords are saved/synced
         await firestoreService.syncOfflineData(farmerId);
       }
-      // Load weather regardless (uses cached profile location if location service check returns)
-      _fetchActivePlotWeather();
+      _loadActivePlotData();
     } catch (e) {
       debugPrint("HomeDashboard location init error: $e");
-      _fetchActivePlotWeather();
+      _loadActivePlotData();
     }
   }
 
-  Future<void> _fetchActivePlotWeather() async {
+  Future<void> _loadActivePlotData() async {
+    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
+    final farmerId = firestoreService.cachedFarmer?.farmerId ?? FirebaseAuth.instance.currentUser?.uid ?? "";
+    if (farmerId.isEmpty) return;
+
+    final cacheKey = "prediction_cache_$_selectedFarmId";
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. Try loading cached weather first to guarantee zero delay & offline resilience
+    final cachedStr = prefs.getString(cacheKey);
+    final cachedTime = prefs.getInt("${cacheKey}_time");
+    if (cachedStr != null && cachedTime != null) {
+      try {
+        final decoded = jsonDecode(cachedStr);
+        final ageMinutes = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(cachedTime)).inMinutes;
+        setState(() {
+          _cachedPrediction = decoded;
+          _lastUpdatedText = "Last updated $ageMinutes mins ago";
+          if (decoded['weather_raw'] != null) {
+            _weatherData = _parseWeatherData(decoded['weather_raw']);
+          }
+        });
+      } catch (e) {
+        debugPrint("Error loading cached prediction: $e");
+      }
+    }
+
+    setState(() {
+      _loadingWeather = true;
+      _isOffline = false;
+    });
+
     try {
-      final firestoreService = Provider.of<FirestoreService>(context, listen: false);
-      String targetLocation = "Sangli"; // default fallback instead of Nashik
-      
-      // Try to read coordinate location from active plot
+      double? lat;
+      double? lon;
+      String location = "Sangli";
       if (firestoreService.cachedFarms.isNotEmpty) {
         final activeFarm = firestoreService.cachedFarms.firstWhere(
           (f) => f.farmId == _selectedFarmId,
           orElse: () => firestoreService.cachedFarms.first,
         );
         if (activeFarm.location.isNotEmpty) {
-          targetLocation = activeFarm.location;
+          location = activeFarm.location;
+          if (location.contains(",")) {
+            final parts = location.split(",");
+            lat = double.tryParse(parts[0].trim());
+            lon = double.tryParse(parts[1].trim());
+          }
         }
       } else if (firestoreService.cachedFarmer?.village.isNotEmpty ?? false) {
-        targetLocation = firestoreService.cachedFarmer!.village;
+        location = firestoreService.cachedFarmer!.village;
       }
 
-      setState(() => _loadingWeather = true);
-      final weather = await WeatherService.getCurrentWeather(targetLocation);
+      // Call our prediction engine which also retrieves fresh coordinate weather
+      final result = await DrakshaApiClient.predictDisease(
+        uid: farmerId,
+        location: location,
+        lat: lat,
+        lon: lon,
+      );
+
+      // Cache the result
+      await prefs.setString(cacheKey, jsonEncode(result));
+      await prefs.setInt("${cacheKey}_time", DateTime.now().millisecondsSinceEpoch);
+
       setState(() {
-        _weatherData = weather;
+        _cachedPrediction = result;
+        _lastUpdatedText = "Last updated just now";
+        if (result['weather_raw'] != null) {
+          _weatherData = _parseWeatherData(result['weather_raw']);
+        }
         _loadingWeather = false;
       });
     } catch (e) {
       debugPrint("Failed loading dashboard weather: $e");
-      setState(() => _loadingWeather = false);
+      setState(() {
+        _loadingWeather = false;
+        _isOffline = true;
+        if (_cachedPrediction != null) {
+          final cacheTimeVal = prefs.getInt("${cacheKey}_time") ?? DateTime.now().millisecondsSinceEpoch;
+          final ageMinutes = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(cacheTimeVal)).inMinutes;
+          _lastUpdatedText = "Showing last available weather ($ageMinutes mins ago)";
+        } else {
+          _lastUpdatedText = "Showing last available weather";
+        }
+      });
     }
+  }
+
+  WeatherData _parseWeatherData(Map<String, dynamic> data) {
+    final main = data['main'] ?? {};
+    final temp = (main['temp'] as num?)?.toDouble() ?? 27.0;
+    final humidity = (main['humidity'] as num?)?.toInt() ?? 65;
+    final wind = (data['wind']?['speed'] as num?)?.toDouble() ?? 12.0;
+    final condition = (data['weather'] != null && data['weather'].isNotEmpty)
+        ? data['weather'][0]['main'].toString()
+        : "Sunny";
+    final cloudCover = (data['clouds']?['all'] as num?)?.toInt() ?? 0;
+
+    double rain = 0.0;
+    if (data.containsKey('rain') && data['rain'].containsKey('1h')) {
+      rain = (data['rain']['1h'] as num).toDouble();
+    }
+
+    return WeatherData(
+      temperature: temp,
+      humidity: humidity,
+      rainfall: rain,
+      windSpeed: wind,
+      condition: condition,
+      forecast: "Similar conditions expected for the next 24 hours.",
+      location: data['name']?.toString() ?? "Local farm",
+      cloud_cover: cloudCover,
+    );
   }
 
   Future<void> _handleBackPress(bool didPop) async {
@@ -162,7 +254,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
     final todayStr = DateFormat.yMMMMd(langCode == 'kn-IN' ? 'kn' : (langCode == 'hi-IN' ? 'hi' : 'en')).format(DateTime.now());
 
     return RefreshIndicator(
-      onRefresh: () => firestoreService.syncOfflineData(firestoreService.cachedFarmer?.farmerId ?? "mock_farmer"),
+      onRefresh: () async {
+        await firestoreService.syncOfflineData(firestoreService.cachedFarmer?.farmerId ?? "mock_farmer");
+        await _loadActivePlotData();
+      },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(20.0),
@@ -211,7 +306,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                            setState(() {
                             _selectedFarmId = newValue;
                           });
-                          _fetchActivePlotWeather();
+                          _loadActivePlotData();
                         }
                       },
                       items: firestoreService.cachedFarms.map<DropdownMenuItem<String>>((farm) {
@@ -234,154 +329,18 @@ class _HomeDashboardState extends State<HomeDashboard> {
             const SizedBox(height: 20),
 
             // Top Status Panel: Backup Indicator & Monthly Expense Summary
-            AppCard(
-              color: AppColors.primaryGreen,
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.cloud_done, color: AppColors.softYellow, size: 20),
-                          const SizedBox(width: 6),
-                          Text(
-                            AppTranslations.translate('backup_msg', langCode),
-                            style: const TextStyle(
-                              color: AppColors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Text(
-                        "ONLINE",
-                        style: TextStyle(
-                          color: AppColors.softYellow,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
-                          letterSpacing: 1.0,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    AppTranslations.translate('month_expense', langCode).toUpperCase(),
-                    style: TextStyle(
-                      color: AppColors.white.withValues(alpha: 0.8),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.0,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Text(
-                        "₹${summary.monthTotal.toStringAsFixed(0)}",
-                        style: const TextStyle(
-                          fontSize: 34,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          "This Year: ₹${summary.yearTotal.toStringAsFixed(0)}",
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    height: 1,
-                    color: AppColors.white.withValues(alpha: 0.2),
-                  ),
-                  const SizedBox(height: 12),
-                  // Live Weather Widget Section
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _loadingWeather 
-                                  ? "FETCHING WEATHER..." 
-                                  : (_weatherData != null 
-                                      ? "WEATHER: ${_weatherData!.condition.toUpperCase()}" 
-                                      : "WEATHER DATA"),
-                              style: TextStyle(
-                                color: AppColors.white.withValues(alpha: 0.8),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.0,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _loadingWeather
-                                  ? "Loading micro-climate GPS forecast..."
-                                  : (_weatherData != null
-                                      ? "Temp: ${_weatherData!.temperature.toStringAsFixed(1)}°C | Humid: ${_weatherData!.humidity}%"
-                                      : "Location services starting..."),
-                              style: const TextStyle(
-                                color: AppColors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (!_loadingWeather && _weatherData != null) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                "Location: ${_weatherData!.location}",
-                                style: TextStyle(
-                                  color: AppColors.softYellow.withValues(alpha: 0.9),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ]
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Weather Condition Icon
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          _weatherData?.condition.toLowerCase().contains('rain') ?? false
-                              ? Icons.umbrella
-                              : (_weatherData?.condition.toLowerCase().contains('cloud') ?? false
-                                  ? Icons.cloud
-                                  : Icons.wb_sunny),
-                          color: AppColors.softYellow,
-                          size: 24,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+             LiveVineyardHeroCard(
+              plotName: firestoreService.cachedFarms.isNotEmpty
+                  ? firestoreService.cachedFarms.firstWhere(
+                      (f) => f.farmId == _selectedFarmId,
+                      orElse: () => firestoreService.cachedFarms.first,
+                    ).farmName
+                  : "My Vineyard",
+              weatherData: _weatherData,
+              smartStatus: _cachedPrediction?['smartStatus'] ?? "Excellent Growing Conditions",
+              aiInsight: _cachedPrediction?['aiInsight'] ?? "Analyzing vine canopy data & weather models...",
+              lastUpdatedText: _lastUpdatedText,
+              isOffline: _isOffline,
             ),
             const SizedBox(height: 24),
 
