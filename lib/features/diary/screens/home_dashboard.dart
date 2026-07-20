@@ -266,6 +266,24 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
     final todayStr = DateFormat.yMMMMd(langCode == 'kn-IN' ? 'kn' : (langCode == 'hi-IN' ? 'hi' : 'en')).format(DateTime.now());
 
+    // Extract dynamic prediction status & insight under safety thresholds (Prevent False Alerts)
+    final prediction = _cachedPrediction;
+    String statusStr = "Excellent Growing Conditions";
+    String insightStr = "Analyzing vine canopy data & weather models...";
+
+    if (prediction != null) {
+      final double confidence = (prediction['confidence'] as num?)?.toDouble() ?? 0.0;
+      final String risk = prediction['diseaseRisk']?.toString() ?? "Low";
+      
+      if ((risk == "High" || risk == "Medium") && confidence >= 0.6) {
+        statusStr = prediction['status'] ?? prediction['smartStatus'] ?? "${prediction['diseaseName']} Risk Increasing";
+        insightStr = prediction['aiInsight'] ?? prediction['reason'] ?? "";
+      } else {
+        statusStr = "Excellent Growing Conditions";
+        insightStr = "Weather is currently stable. Continue regular monitoring.";
+      }
+    }
+
     return RefreshIndicator(
       onRefresh: () async {
         await firestoreService.syncOfflineData(firestoreService.cachedFarmer?.farmerId ?? "mock_farmer");
@@ -350,8 +368,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     ).farmName
                   : "My Vineyard",
               weatherData: _weatherData,
-              smartStatus: _cachedPrediction?['smartStatus'] ?? "Excellent Growing Conditions",
-              aiInsight: _cachedPrediction?['aiInsight'] ?? "Analyzing vine canopy data & weather models...",
+              smartStatus: statusStr,
+              aiInsight: insightStr,
               lastUpdatedText: _lastUpdatedText,
               langCode: langCode,
               isOffline: _isOffline,
