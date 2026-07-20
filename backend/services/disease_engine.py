@@ -71,23 +71,70 @@ def calculate_disease_risk(weather: dict, diaries: list, plots: list) -> dict:
     dm_score = min(dm_score, 1.0)
     pm_score = min(pm_score, 1.0)
 
+    # Dynamic smart status and AI insight generation
+    rain_1h = weather.get("rainfall_1h", 0.0)
+    
     if dm_score >= pm_score:
         risk_level = _score_to_level(dm_score)
+        disease_name = "Downy Mildew" if dm_score > 0.2 else "None"
+        rec_spray = _get_spray("Downy Mildew", dm_score)
+        reason = f"Humidity {humidity}%, {days_since_spray} days since last spray, stage: {crop_stage}"
+        
+        if risk_level in ["High", "Medium"] and disease_name != "None":
+            smart_status = f"{disease_name} Risk Increasing"
+            ai_insight = f"{disease_name} threat level is {risk_level}. Spraying {rec_spray} is recommended immediately."
+        elif rain_1h > 0:
+            smart_status = "Rain Expected Today"
+            ai_insight = "Rainfall detected at your coordinates. Avoid spraying fungicides to prevent chemical wash-off."
+        elif humidity > 80:
+            smart_status = "High Humidity Advisory"
+            ai_insight = "Relative humidity is high at your vineyard. Monitor lower leaf canopies for early signs of downy mildew."
+        elif temp > 36:
+            smart_status = "Heat Stress Caution"
+            ai_insight = "Temperatures are high at your vineyard. Optimize irrigation timing to prevent moisture transpiration stress."
+        else:
+            smart_status = "Excellent Growing Conditions"
+            ai_insight = "Weather and canopy micro-climate conditions are optimal for grape berry development."
+            
         return {
             "diseaseRisk": risk_level,
-            "diseaseName": "Downy Mildew" if dm_score > 0.2 else "None",
+            "diseaseName": disease_name,
             "confidence": round(dm_score, 2),
-            "recommendedSpray": _get_spray("Downy Mildew", dm_score),
-            "reason": f"Humidity {humidity}%, {days_since_spray} days since last spray, stage: {crop_stage}",
+            "recommendedSpray": rec_spray,
+            "reason": reason,
+            "smartStatus": smart_status,
+            "aiInsight": ai_insight,
         }
     else:
         risk_level = _score_to_level(pm_score)
+        disease_name = "Powdery Mildew" if pm_score > 0.2 else "None"
+        rec_spray = _get_spray("Powdery Mildew", pm_score)
+        reason = f"Temp {temp}°C, {days_since_spray} days since last spray, stage: {crop_stage}"
+        
+        if risk_level in ["High", "Medium"] and disease_name != "None":
+            smart_status = f"{disease_name} Risk Increasing"
+            ai_insight = f"{disease_name} threat level is {risk_level}. Apply preventive spray of {rec_spray}."
+        elif rain_1h > 0:
+            smart_status = "Rain Expected Today"
+            ai_insight = "Precipitation recorded. High humidity may follow; check ventilation inside the vine rows."
+        elif humidity > 80:
+            smart_status = "High Humidity Advisory"
+            ai_insight = "Canopy moisture is high. Watch out for secondary infections in dense bunch zones."
+        elif temp > 36:
+            smart_status = "Heat Stress Caution"
+            ai_insight = "Temperatures are peaking. Grape vines will reduce photosynthesis to conserve moisture."
+        else:
+            smart_status = "Excellent Growing Conditions"
+            ai_insight = "Canopy environment is well balanced for normal growth and berry enlargement."
+            
         return {
             "diseaseRisk": risk_level,
-            "diseaseName": "Powdery Mildew" if pm_score > 0.2 else "None",
+            "diseaseName": disease_name,
             "confidence": round(pm_score, 2),
-            "recommendedSpray": _get_spray("Powdery Mildew", pm_score),
-            "reason": f"Temp {temp}°C, {days_since_spray} days since last spray, stage: {crop_stage}",
+            "recommendedSpray": rec_spray,
+            "reason": reason,
+            "smartStatus": smart_status,
+            "aiInsight": ai_insight,
         }
 
 
