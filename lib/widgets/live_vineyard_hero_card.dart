@@ -526,13 +526,13 @@ class _VineyardPainter extends CustomPainter {
     else if (scene == "sunny") {
       // Draw Sunbeams
       final double sunCenterX = size.width - 40;
-      const double sunCenterY = 40.0;
+      final double sunCenterY = 40.0;
       final Paint sunPaint = Paint()..color = Colors.yellow[600]!.withValues(alpha: opacity);
-      canvas.drawCircle(const Offset(sunCenterX, sunCenterY), 16, sunPaint);
+      canvas.drawCircle(Offset(sunCenterX, sunCenterY), 16, sunPaint);
 
       final double pulse = math.sin(animationValue * math.pi * 4.0) * 0.08 + 1.0;
       final Paint sunGlowPaint = Paint()..color = Colors.yellow[300]!.withValues(alpha: opacity * 0.15);
-      canvas.drawCircle(const Offset(sunCenterX, sunCenterY), 28 * pulse, sunGlowPaint);
+      canvas.drawCircle(Offset(sunCenterX, sunCenterY), 28 * pulse, sunGlowPaint);
 
       // Birds flying occasionally
       final Paint birdPaint = Paint()
