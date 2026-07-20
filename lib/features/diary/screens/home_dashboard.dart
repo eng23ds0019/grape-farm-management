@@ -340,6 +340,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
               smartStatus: _cachedPrediction?['smartStatus'] ?? "Excellent Growing Conditions",
               aiInsight: _cachedPrediction?['aiInsight'] ?? "Analyzing vine canopy data & weather models...",
               lastUpdatedText: _lastUpdatedText,
+              langCode: langCode,
               isOffline: _isOffline,
             ),
             const SizedBox(height: 24),

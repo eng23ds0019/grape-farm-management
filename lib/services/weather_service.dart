@@ -11,6 +11,12 @@ class WeatherData {
   final String forecast;
   final String location;
   final int cloud_cover;
+  final int pressure;
+  final int visibility;
+  final int sunrise;
+  final int sunset;
+  final double temp_max;
+  final double temp_min;
 
   WeatherData({
     required this.temperature,
@@ -21,6 +27,12 @@ class WeatherData {
     required this.forecast,
     required this.location,
     required this.cloud_cover,
+    required this.pressure,
+    required this.visibility,
+    required this.sunrise,
+    required this.sunset,
+    required this.temp_max,
+    required this.temp_min,
   });
 
   Map<String, dynamic> toJson() {
@@ -33,12 +45,18 @@ class WeatherData {
       'forecast': forecast,
       'location': location,
       'cloud_cover': cloud_cover,
+      'pressure': pressure,
+      'visibility': visibility,
+      'sunrise': sunrise,
+      'sunset': sunset,
+      'temp_max': temp_max,
+      'temp_min': temp_min,
     };
   }
 
   @override
   String toString() {
-    return "Location: $location, Temp: ${temperature.toStringAsFixed(1)}°C, Humidity: $humidity%, Rain: ${rainfall.toStringAsFixed(1)}mm, Wind: ${windSpeed.toStringAsFixed(1)}km/h, Condition: $condition, Forecast: $forecast, Clouds: $cloud_cover%";
+    return "Location: $location, Temp: ${temperature.toStringAsFixed(1)}°C, Humidity: $humidity%, Rain: ${rainfall.toStringAsFixed(1)}mm, Wind: ${windSpeed.toStringAsFixed(1)}km/h, Condition: $condition, Forecast: $forecast, Clouds: $cloud_cover%, Pressure: $pressure hPa, Visibility: $visibility m";
   }
 }
 
@@ -86,6 +104,12 @@ class WeatherService {
         }
 
         final cloudCover = (data['clouds']?['all'] as num?)?.toInt() ?? 0;
+        final pressure = (data['main']['pressure'] as num?)?.toInt() ?? 1013;
+        final visibility = (data['visibility'] as num?)?.toInt() ?? 10000;
+        final sunrise = (data['sys']['sunrise'] as num?)?.toInt() ?? 0;
+        final sunset = (data['sys']['sunset'] as num?)?.toInt() ?? 0;
+        final tempMax = (data['main']['temp_max'] as num?)?.toDouble() ?? temp;
+        final tempMin = (data['main']['temp_min'] as num?)?.toDouble() ?? temp;
 
         return WeatherData(
           temperature: temp,
@@ -96,6 +120,12 @@ class WeatherService {
           forecast: "Similar conditions expected for the next 24 hours.",
           location: data['name']?.toString() ?? location,
           cloud_cover: cloudCover,
+          pressure: pressure,
+          visibility: visibility,
+          sunrise: sunrise,
+          sunset: sunset,
+          temp_max: tempMax,
+          temp_min: tempMin,
         );
       } else {
         debugPrint("WeatherService: OpenWeather API failed with ${response.statusCode}: ${response.body}");
@@ -120,6 +150,12 @@ class WeatherService {
       forecast: "High humidity and cloudy skies. Favorable for mildew development.",
       location: location,
       cloud_cover: 80,
+      pressure: 1011,
+      visibility: 8000,
+      sunrise: DateTime.now().millisecondsSinceEpoch ~/ 1000 - 18000,
+      sunset: DateTime.now().millisecondsSinceEpoch ~/ 1000 + 18000,
+      temp_max: temp + 2.5,
+      temp_min: temp - 2.0,
     );
   }
 }

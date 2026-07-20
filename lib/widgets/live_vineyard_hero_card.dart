@@ -10,6 +10,7 @@ class LiveVineyardHeroCard extends StatefulWidget {
   final String aiInsight;
   final String lastUpdatedText;
   final bool isOffline;
+  final String langCode;
 
   const LiveVineyardHeroCard({
     super.key,
@@ -18,6 +19,7 @@ class LiveVineyardHeroCard extends StatefulWidget {
     required this.smartStatus,
     required this.aiInsight,
     required this.lastUpdatedText,
+    required this.langCode,
     this.isOffline = false,
   });
 
@@ -32,7 +34,85 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
   String _currentScene = "sunny";
   String _prevScene = "sunny";
   double _sceneTransition = 1.0;
-  
+
+  // Localized Translation Table for Vineyard Hero Card
+  static const Map<String, Map<String, String>> _localizations = {
+    'en-IN': {
+      'TEMP': 'TEMP',
+      'HUMIDITY': 'HUMID',
+      'RAIN': 'RAIN',
+      'WIND': 'WIND',
+      'CLOUD': 'CLOUD',
+      'UV': 'UV',
+      'PRES': 'PRES',
+      'VIS': 'VIS',
+      'RISE': 'RISE',
+      'SET': 'SET',
+      'HIGH': 'HIGH',
+      'LOW': 'LOW',
+      'WEATHER': 'WEATHER',
+      'OFFLINE': 'OFFLINE',
+      'Excellent Growing Conditions': 'Excellent Growing Conditions',
+      'Analyzing vine canopy data & weather models...': 'Analyzing vine canopy data & weather models...',
+      'Weather is currently stable. Continue regular monitoring.': 'Weather is currently stable. Continue regular monitoring.',
+      'Showing last available weather': 'Showing last available weather',
+    },
+    'kn-IN': {
+      'TEMP': 'ತಾಪಮಾನ',
+      'HUMIDITY': 'ಆರ್ದ್ರತೆ',
+      'RAIN': 'ಮಳೆ %',
+      'WIND': 'ಗಾಳಿ',
+      'CLOUD': 'ಮೋಡ',
+      'UV': 'ಯುವಿ',
+      'PRES': 'ಒತ್ತಡ',
+      'VIS': 'ಗೋಚರತೆ',
+      'RISE': 'ಸೂರ್ಯೋದಯ',
+      'SET': 'ಸೂರ್ಯಾಸ್ತ',
+      'HIGH': 'ಗರಿಷ್ಠ',
+      'LOW': 'ಕನಿಷ್ಠ',
+      'WEATHER': 'ಹವಾಮಾನ',
+      'OFFLINE': 'ಆಫ್‌ಲೈನ್',
+      'Excellent Growing Conditions': 'ಅತ್ಯುತ್ತಮ ಬೆಳವಣಿಗೆಯ ವಾತಾವರಣ',
+      'Analyzing vine canopy data & weather models...': 'ದ್ರಾಕ್ಷಿ ತೋಟದ ಹವಾಮಾನವನ್ನು ವಿಶ್ಲೇಷಿಸಲಾಗುತ್ತಿದೆ...',
+      'Weather is currently stable. Continue regular monitoring.': 'ಹವಾಮಾನ ಸದ್ಯಕ್ಕೆ ಸ್ಥಿರವಾಗಿದೆ. ನಿಯಮಿತ ಮೇಲ್ವಿಚಾರಣೆ ಮುಂದುವರಿಸಿ.',
+      'Showing last available weather': 'ಹಳೆಯ ಹವಾಮಾನವನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ',
+    },
+    'hi-IN': {
+      'TEMP': 'तापमान',
+      'HUMIDITY': 'आर्द्रता',
+      'RAIN': 'बारिश %',
+      'WIND': 'हवा',
+      'CLOUD': 'बादल',
+      'UV': 'यूवी',
+      'PRES': 'दबाव',
+      'VIS': 'दृश्यता',
+      'RISE': 'सूर्योदय',
+      'SET': 'सूर्यास्त',
+      'HIGH': 'अधिकतम',
+      'LOW': 'न्यूनतम',
+      'WEATHER': 'मौसम',
+      'OFFLINE': 'ऑफलाइन',
+      'Excellent Growing Conditions': 'उत्कृष्ट विकास की स्थिति',
+      'Analyzing vine canopy data & weather models...': 'अंगूर के बाग के मौसम का विश्लेषण किया जा रहा है...',
+      'Weather is currently stable. Continue regular monitoring.': 'मौसम वर्तमान में स्थिर है। नियमित निगरानी जारी रखें।',
+      'Showing last available weather': 'पुराना मौसम दिखाया जा रहा है',
+    }
+  };
+
+  String _t(String key) {
+    final code = widget.langCode == 'kn-IN' ? 'kn-IN' : (widget.langCode == 'hi-IN' ? 'hi-IN' : 'en-IN');
+    return _localizations[code]?[key] ?? key;
+  }
+
+  String _formatTime(int unixTimestamp) {
+    if (unixTimestamp == 0) return "--:--";
+    final dt = DateTime.fromMillisecondsSinceEpoch(unixTimestamp * 1000);
+    final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final min = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? "PM" : "AM";
+    return "$hour:$min $ampm";
+  }
+
   @override
   void initState() {
     super.initState();
@@ -56,7 +136,7 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
     final cond = widget.weatherData!.condition.toLowerCase();
     String newScene = "sunny";
 
-    // Determine target scene based on weather details
+    // Determine target scene based on weather details & time of day
     final now = DateTime.now();
     final isNightTime = now.hour < 6 || now.hour > 18;
 
@@ -91,7 +171,7 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
             _sceneTransition = 1.0;
             _prevScene = _currentScene;
           });
-          return false; // stop loop
+          return false;
         }
         return true;
       });
@@ -104,23 +184,20 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
     super.dispose();
   }
 
-  // Calculate dynamic UV Index based on weather data and time of day
   int get _calculatedUvIndex {
     if (widget.weatherData == null) return 0;
     final now = DateTime.now();
-    if (now.hour < 7 || now.hour > 17) return 0; // Dark
+    if (now.hour < 7 || now.hour > 17) return 0; 
     
-    int baseUv = 8; // Max mid-day clear
+    int baseUv = 8;
     if (now.hour < 9 || now.hour > 15) baseUv = 3;
     
-    // Reduce based on condition/clouds
     final cond = widget.weatherData!.condition.toLowerCase();
     if (cond.contains("cloud")) baseUv = (baseUv * 0.5).round();
     if (cond.contains("rain") || cond.contains("storm")) baseUv = 1;
     return math.max(0, baseUv);
   }
 
-  // Calculate Rain probability dynamically
   int get _calculatedRainProb {
     if (widget.weatherData == null) return 0;
     if (widget.weatherData!.rainfall > 0.0) return 100;
@@ -138,16 +215,38 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
     final temp = widget.weatherData?.temperature ?? 27.0;
     final humidity = widget.weatherData?.humidity ?? 65;
     final wind = widget.weatherData?.windSpeed ?? 12.0;
+    final pressure = widget.weatherData?.pressure ?? 1013;
+    final visibility = (widget.weatherData?.visibility ?? 10000) / 1000.0;
+    final sunriseText = _formatTime(widget.weatherData?.sunrise ?? 0);
+    final sunsetText = _formatTime(widget.weatherData?.sunset ?? 0);
+    final tempMax = widget.weatherData?.temp_max ?? temp;
+    final tempMin = widget.weatherData?.temp_min ?? temp;
     
+    // Fallback localization for status message
+    String displayStatus = widget.smartStatus;
+    if (displayStatus == "Excellent Growing Conditions" || displayStatus == "Loading status...") {
+      displayStatus = _t(displayStatus);
+    }
+    String displayInsight = widget.aiInsight;
+    if (displayInsight == "Analyzing vine canopy data & weather models..." ||
+        displayInsight == "Weather is currently stable. Continue regular monitoring.") {
+      displayInsight = _t(displayInsight);
+    }
+    
+    String updatedLabel = widget.lastUpdatedText;
+    if (updatedLabel.contains("Showing last available weather")) {
+      updatedLabel = _t("Showing last available weather") + (updatedLabel.contains("(") ? " (${updatedLabel.split('(')[1]}" : "");
+    }
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -155,11 +254,11 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
         borderRadius: BorderRadius.circular(24),
         child: Column(
           children: [
-            // Dynamic CustomPaint Vineyard Visual Hero Card
+            // Dynamic CustomPaint Photorealistic Vineyard Visual Hero Card
             Container(
-              height: 240,
+              height: 250,
               width: double.infinity,
-              color: Colors.grey[900],
+              color: Colors.grey[950],
               child: Stack(
                 children: [
                   // Smooth Animated custom painter background
@@ -168,7 +267,7 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                       animation: _animController,
                       builder: (context, child) {
                         return CustomPaint(
-                          painter: _VineyardPainter(
+                          painter: _PhotorealisticVineyardPainter(
                             animationValue: _animController.value,
                             currentScene: _currentScene,
                             prevScene: _prevScene,
@@ -201,24 +300,24 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                   letterSpacing: 1.2,
-                                  shadows: [Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 2))],
+                                  shadows: [Shadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 2))],
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Row(
                                 children: [
-                                  Icon(Icons.location_on, color: AppColors.softYellow.withValues(alpha: 0.9), size: 12),
+                                  Icon(Icons.location_on, color: AppColors.softYellow.withValues(alpha: 0.95), size: 12),
                                   const SizedBox(width: 4),
                                   Expanded(
                                     child: Text(
                                       widget.weatherData?.location ?? "Locating Vineyard...",
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: Colors.white.withValues(alpha: 0.85),
+                                      style: const TextStyle(
+                                        color: Colors.white,
                                         fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
+                                        fontWeight: FontWeight.bold,
+                                        shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
                                       ),
                                     ),
                                   ),
@@ -231,7 +330,7 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.35),
+                            color: Colors.black.withValues(alpha: 0.45),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.white24),
                           ),
@@ -245,7 +344,9 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                widget.weatherData?.condition.toUpperCase() ?? "OFFLINE",
+                                widget.weatherData != null 
+                                    ? widget.weatherData!.condition.toUpperCase() 
+                                    : _t("OFFLINE"),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
@@ -273,19 +374,38 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.black.withValues(alpha: 0.0),
-                            Colors.black.withValues(alpha: 0.65),
+                            Colors.black.withValues(alpha: 0.75),
                           ],
                         ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildMetricItem(Icons.thermostat, "${temp.toStringAsFixed(1)}°C", "TEMP"),
-                          _buildMetricItem(Icons.water_drop, "$humidity%", "HUMIDITY"),
-                          _buildMetricItem(Icons.umbrella, "$_calculatedRainProb%", "RAIN %"),
-                          _buildMetricItem(Icons.air, "${wind.toStringAsFixed(1)} km/h", "WIND"),
-                          _buildMetricItem(Icons.cloud, "${widget.weatherData?.cloud_cover ?? 0}%", "CLOUD"),
-                          _buildMetricItem(Icons.wb_sunny, "$_calculatedUvIndex", "UV"),
+                          // Primary row
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildMetricItem(Icons.thermostat, "${temp.toStringAsFixed(1)}°C", _t("TEMP")),
+                              _buildMetricItem(Icons.water_drop, "$humidity%", _t("HUMIDITY")),
+                              _buildMetricItem(Icons.umbrella, "$_calculatedRainProb%", _t("RAIN")),
+                              _buildMetricItem(Icons.air, "${wind.toStringAsFixed(1)} km/h", _t("WIND")),
+                              _buildMetricItem(Icons.cloud, "${widget.weatherData?.cloud_cover ?? 0}%", _t("CLOUD")),
+                              _buildMetricItem(Icons.wb_sunny, "$_calculatedUvIndex", _t("UV")),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          // Secondary Weather Intelligence row
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildMetricItem(Icons.speed, "$pressure hPa", _t("PRES")),
+                              _buildMetricItem(Icons.visibility, "${visibility.toStringAsFixed(1)} km", _t("VIS")),
+                              _buildMetricItem(Icons.vertical_align_top, "${tempMax.toStringAsFixed(1)}°", _t("HIGH")),
+                              _buildMetricItem(Icons.vertical_align_bottom, "${tempMin.toStringAsFixed(1)}°", _t("LOW")),
+                              _buildMetricItem(Icons.wb_twilight, sunriseText, _t("RISE")),
+                              _buildMetricItem(Icons.nights_stay, sunsetText, _t("SET")),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -305,34 +425,40 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(widget.smartStatus).withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: _getStatusColor(widget.smartStatus).withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _getStatusIcon(widget.smartStatus),
+                                color: _getStatusColor(widget.smartStatus),
+                                size: 14,
+                              ),
                             ),
-                            child: Icon(
-                              _getStatusIcon(widget.smartStatus),
-                              color: _getStatusColor(widget.smartStatus),
-                              size: 14,
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                displayStatus.toUpperCase(),
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: _getStatusColor(widget.smartStatus),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            widget.smartStatus.toUpperCase(),
-                            style: TextStyle(
-                              color: _getStatusColor(widget.smartStatus),
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
-                        widget.isOffline ? "Cached Mode" : widget.lastUpdatedText,
+                        widget.isOffline ? _t("OFFLINE") : updatedLabel,
                         style: const TextStyle(
                           color: AppColors.textLight,
                           fontSize: 10,
@@ -343,12 +469,12 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    widget.aiInsight,
+                    displayInsight,
                     style: const TextStyle(
                       color: AppColors.earthyBrown,
                       fontSize: 13.5,
-                      fontWeight: FontWeight.w500,
-                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                      height: 1.4,
                     ),
                   ),
                 ],
@@ -361,29 +487,38 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
   }
 
   Widget _buildMetricItem(IconData icon, String value, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: Colors.white70, size: 14),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
+    return SizedBox(
+      width: 50,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white70, size: 12),
+          const SizedBox(height: 1),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
-            fontSize: 8,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.5,
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 7.5,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.2,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -419,14 +554,14 @@ class _LiveVineyardHeroCardState extends State<LiveVineyardHeroCard> with Single
   }
 }
 
-class _VineyardPainter extends CustomPainter {
+class _PhotorealisticVineyardPainter extends CustomPainter {
   final double animationValue;
   final String currentScene;
   final String prevScene;
   final double transition;
   final double windSpeed;
 
-  _VineyardPainter({
+  _PhotorealisticVineyardPainter({
     required this.animationValue,
     required this.currentScene,
     required this.prevScene,
@@ -434,21 +569,20 @@ class _VineyardPainter extends CustomPainter {
     required this.windSpeed,
   });
 
-  // Scene coloring config
   static const Map<String, List<Color>> skyColors = {
-    "sunny": [Color(0xFF4FC3F7), Color(0xFFE1F5FE)],
-    "cloudy": [Color(0xFF90A4AE), Color(0xFFECEFF1)],
-    "rain": [Color(0xFF78909C), Color(0xFFCFD8DC)],
-    "storm": [Color(0xFF37474F), Color(0xFF546E7A)],
-    "fog": [Color(0xFFB0BEC5), Color(0xFFECEFF1)],
-    "night": [Color(0xFF0D1B2A), Color(0xFF1B263B)],
+    "sunny": [Color(0xFF00B0FF), Color(0xFFE0F7FA)],
+    "cloudy": [Color(0xFF607D8B), Color(0xFFCFD8DC)],
+    "rain": [Color(0xFF455A64), Color(0xFF90A4AE)],
+    "storm": [Color(0xFF263238), Color(0xFF37474F)],
+    "fog": [Color(0xFF78909C), Color(0xFFECEFF1)],
+    "night": [Color(0xFF000428), Color(0xFF004E92)],
   };
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     
-    // ─── 1. SKY BACKGROUND BLENDING ───
+    // ─── 1. SKY GRADIENT BLENDING ───
     final List<Color> currSky = skyColors[currentScene] ?? skyColors["sunny"]!;
     final List<Color> prevSky = skyColors[prevScene] ?? skyColors["sunny"]!;
     
@@ -464,264 +598,343 @@ class _VineyardPainter extends CustomPainter {
     );
     canvas.drawRect(rect, Paint()..shader = skyGradient.createShader(rect));
 
-    // ─── 2. SCENE SPECIAL EFFECTS (Stars, Sunrays, Clouds) ───
+    // ─── 2. DETAILED BACKGROUND SCENE EFFECTS ───
     final double opacityCurrent = transition;
     final double opacityPrev = 1.0 - transition;
 
-    // Draw previous scene background effects
     _drawSceneEffects(canvas, size, prevScene, opacityPrev);
-    // Draw current scene background effects
     _drawSceneEffects(canvas, size, currentScene, opacityCurrent);
 
-    // ─── 3. HILLS / MOUNTAINS BACKGROUND ───
-    final Paint hillPaint = Paint()
-      ..color = Color.lerp(const Color(0xFF2E7D32), const Color(0xFF1B4332), isNight(currentScene) ? 0.8 : 0.2)!
+    // ─── 3. MULTI-LAYERED SILHOUETTE HILLS ───
+    final double hillDarkness = currentScene == "night" ? 0.9 : (currentScene == "storm" ? 0.7 : 0.2);
+    
+    // Distant Hills (Lighter, Blueish-Green)
+    final Paint distHillPaint = Paint()
+      ..color = Color.lerp(const Color(0xFF388E3C).withValues(alpha: 0.7), Colors.black, hillDarkness)!
       ..style = PaintingStyle.fill;
-
-    final Path hillPath = Path()
+    final Path distHill = Path()
       ..moveTo(0, size.height)
-      ..lineTo(0, size.height * 0.7)
-      ..quadraticBezierTo(size.width * 0.25, size.height * 0.65, size.width * 0.5, size.height * 0.72)
-      ..quadraticBezierTo(size.width * 0.75, size.height * 0.78, size.width, size.height * 0.68)
+      ..lineTo(0, size.height * 0.65)
+      ..quadraticBezierTo(size.width * 0.3, size.height * 0.6, size.width * 0.6, size.height * 0.68)
+      ..quadraticBezierTo(size.width * 0.8, size.height * 0.72, size.width, size.height * 0.63)
       ..lineTo(size.width, size.height)
       ..close();
-    canvas.drawPath(hillPath, hillPaint);
+    canvas.drawPath(distHill, distHillPaint);
 
-    // ─── 4. GRAPEVINE ROW DRAWING ───
+    // Near Hills (Darker, Textured)
+    final Paint nearHillPaint = Paint()
+      ..color = Color.lerp(const Color(0xFF1B5E20), Colors.black, hillDarkness)!
+      ..style = PaintingStyle.fill;
+    final Path nearHill = Path()
+      ..moveTo(0, size.height)
+      ..lineTo(0, size.height * 0.72)
+      ..quadraticBezierTo(size.width * 0.25, size.height * 0.68, size.width * 0.5, size.height * 0.75)
+      ..quadraticBezierTo(size.width * 0.75, size.height * 0.8, size.width, size.height * 0.7)
+      ..lineTo(size.width, size.height)
+      ..close();
+    canvas.drawPath(nearHill, nearHillPaint);
+
+    // ─── 4. GRAPEVINE ROWS TRELLIS & TRUNK ───
     _drawGrapevineRows(canvas, size);
 
-    // ─── 5. FOREGROUND WEATHER EFFECTS (Rain, Storm, Fog) ───
+    // ─── 5. FOREGROUND WEATHER LAYERS (Rain, Lightning, Fog) ───
     _drawForegroundEffects(canvas, size, prevScene, opacityPrev);
     _drawForegroundEffects(canvas, size, currentScene, opacityCurrent);
   }
-
-  bool isNight(String scene) => scene == "night";
 
   void _drawSceneEffects(Canvas canvas, Size size, String scene, double opacity) {
     if (opacity <= 0.02) return;
 
     if (scene == "night") {
-      // Draw Stars
+      // Starry sky twinkle
       final Paint starPaint = Paint()..color = Colors.white.withValues(alpha: opacity);
       final double twinkle = math.sin(animationValue * math.pi * 6.0) * 0.5 + 0.5;
       
       final List<Offset> stars = [
-        const Offset(30, 40), const Offset(90, 25), const Offset(150, 45),
-        const Offset(220, 30), const Offset(280, 50), const Offset(70, 70),
-        const Offset(180, 75), const Offset(250, 90), const Offset(320, 35)
+        const Offset(25, 30), const Offset(80, 20), const Offset(140, 35),
+        const Offset(210, 25), const Offset(270, 45), const Offset(60, 60),
+        const Offset(170, 65), const Offset(240, 80), const Offset(310, 30),
+        const Offset(110, 70), const Offset(50, 90), const Offset(290, 75)
       ];
 
       for (int i = 0; i < stars.length; i++) {
-        final double starScale = (i % 2 == 0) ? twinkle : (1.0 - twinkle);
-        canvas.drawCircle(stars[i], 1.5 * starScale, starPaint);
+        final double starScale = (i % 3 == 0) ? twinkle : ((i % 3 == 1) ? (1.0 - twinkle) : 0.7);
+        canvas.drawCircle(stars[i], 1.4 * starScale, starPaint);
       }
       
-      // Draw Moon
-      final Paint moonPaint = Paint()..color = const Color(0xFFFFF3E0).withValues(alpha: opacity);
-      canvas.drawCircle(Offset(size.width - 50, 45), 18, moonPaint);
+      // Photorealistic moon with craters
+      final double moonX = size.width - 50;
+      final double moonY = 45.0;
+      final Paint moonPaint = Paint()..color = const Color(0xFFFFFDE7).withValues(alpha: opacity);
+      canvas.drawCircle(Offset(moonX, moonY), 16, moonPaint);
       // Moon glow
-      canvas.drawCircle(Offset(size.width - 50, 45), 24, Paint()..color = Colors.white.withValues(alpha: opacity * 0.08));
+      canvas.drawCircle(Offset(moonX, moonY), 24, Paint()..color = Colors.white.withValues(alpha: opacity * 0.06));
+      
+      // Crater details
+      final Paint craterPaint = Paint()..color = const Color(0xFFE0DBB5).withValues(alpha: opacity * 0.5);
+      canvas.drawCircle(Offset(moonX - 5, moonY - 4), 3, craterPaint);
+      canvas.drawCircle(Offset(moonX + 4, moonY + 6), 2, craterPaint);
+      canvas.drawCircle(Offset(moonX - 2, moonY + 8), 2.5, craterPaint);
     } 
     
     else if (scene == "sunny") {
-      // Draw Sunbeams
-      final double sunCenterX = size.width - 40;
-      final double sunCenterY = 40.0;
-      final Paint sunPaint = Paint()..color = Colors.yellow[600]!.withValues(alpha: opacity);
-      canvas.drawCircle(Offset(sunCenterX, sunCenterY), 16, sunPaint);
+      final double sunX = size.width - 50;
+      final double sunY = 45.0;
+      
+      // Radial Sunlight flare
+      final Paint sunGlow = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.yellow[300]!.withValues(alpha: opacity * 0.3),
+            Colors.yellow[500]!.withValues(alpha: opacity * 0.08),
+            Colors.transparent
+          ],
+        ).createShader(Rect.fromCircle(center: Offset(sunX, sunY), radius: 60));
+      canvas.drawCircle(Offset(sunX, sunY), 60, sunGlow);
 
-      final double pulse = math.sin(animationValue * math.pi * 4.0) * 0.08 + 1.0;
-      final Paint sunGlowPaint = Paint()..color = Colors.yellow[300]!.withValues(alpha: opacity * 0.15);
-      canvas.drawCircle(Offset(sunCenterX, sunCenterY), 28 * pulse, sunGlowPaint);
+      final Paint sunCore = Paint()..color = Colors.yellow[100]!.withValues(alpha: opacity);
+      canvas.drawCircle(Offset(sunX, sunY), 14, sunCore);
 
-      // Birds flying occasionally
+      // Birds flying realistically (staggered V shapes)
       final Paint birdPaint = Paint()
-        ..color = Colors.black45.withValues(alpha: opacity)
+        ..color = Colors.blueGrey[900]!.withValues(alpha: opacity * 0.6)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5;
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round;
 
-      final double birdX = (animationValue * (size.width + 100)) - 50;
+      final double birdX = (animationValue * (size.width + 120)) - 60;
       final List<Offset> birdOffsets = [
-        Offset(birdX, 45),
-        Offset(birdX - 25, 38),
-        Offset(birdX - 12, 52),
+        Offset(birdX, 35),
+        Offset(birdX - 22, 28),
+        Offset(birdX - 14, 44),
       ];
 
       for (var offset in birdOffsets) {
         if (offset.dx > 0 && offset.dx < size.width) {
           final Path bird = Path()
-            ..moveTo(offset.dx - 6, offset.dy + 3)
+            ..moveTo(offset.dx - 6, offset.dy + 2)
             ..quadraticBezierTo(offset.dx - 3, offset.dy - 3, offset.dx, offset.dy)
-            ..quadraticBezierTo(offset.dx + 3, offset.dy - 3, offset.dx + 6, offset.dy + 3);
+            ..quadraticBezierTo(offset.dx + 3, offset.dy - 3, offset.dx + 6, offset.dy + 2);
           canvas.drawPath(bird, birdPaint);
         }
       }
     } 
     
     else if (scene == "cloudy" || scene == "rain" || scene == "storm") {
-      // Drifting clouds
+      // Photorealistic dark cumulus clouds
       final Paint cloudPaint = Paint()
-        ..color = (scene == "storm" ? Colors.blueGrey[800]! : Colors.blueGrey[100]!).withValues(alpha: opacity * 0.85);
+        ..color = (scene == "storm" ? Colors.blueGrey[800]! : Colors.blueGrey[200]!).withValues(alpha: opacity * 0.7);
 
-      final double cloudOffset = animationValue * size.width;
+      final double cloudOffset = animationValue * size.width * 0.6;
       final List<Offset> clouds = [
-        Offset(cloudOffset % (size.width + 80) - 40, 20),
-        Offset((cloudOffset + size.width * 0.5) % (size.width + 120) - 60, 35),
+        Offset(cloudOffset % (size.width + 120) - 60, 20),
+        Offset((cloudOffset + size.width * 0.4) % (size.width + 140) - 70, 32),
       ];
 
       for (var offset in clouds) {
-        canvas.drawCircle(offset, 25, cloudPaint);
-        canvas.drawCircle(Offset(offset.dx - 16, offset.dy + 6), 18, cloudPaint);
-        canvas.drawCircle(Offset(offset.dx + 16, offset.dy + 6), 18, cloudPaint);
+        canvas.drawOval(Rect.fromCenter(center: offset, width: 80, height: 32), cloudPaint);
+        canvas.drawOval(Rect.fromCenter(center: Offset(offset.dx - 20, offset.dy + 4), width: 50, height: 26), cloudPaint);
+        canvas.drawOval(Rect.fromCenter(center: Offset(offset.dx + 20, offset.dy + 4), width: 50, height: 26), cloudPaint);
       }
     }
   }
 
   void _drawGrapevineRows(Canvas canvas, Size size) {
-    // Determine wind sway
-    final double windFactor = math.max(6.0, windSpeed) / 15.0; // scaled wind sway
-    final double sway = math.sin(animationValue * math.pi * 8.0) * 3.0 * windFactor;
+    final double windFactor = math.max(6.0, windSpeed) / 16.0;
+    final double sway = math.sin(animationValue * math.pi * 8.0) * 3.2 * windFactor;
     
+    // Trellis wood texture
     final Paint postPaint = Paint()
-      ..color = const Color(0xFF4A3B32) // rustic wood
-      ..strokeWidth = 4.0;
-      
+      ..color = const Color(0xFF3E2723)
+      ..strokeWidth = 4.5
+      ..strokeCap = StrokeCap.square;
+    
     final Paint wirePaint = Paint()
-      ..color = Colors.grey[600]!
-      ..strokeWidth = 1.0;
+      ..color = Colors.blueGrey[300]!
+      ..strokeWidth = 1.1;
 
-    // Draw trellis posts
-    final List<double> postXPositions = [size.width * 0.15, size.width * 0.5, size.width * 0.85];
-    final double wireY1 = size.height * 0.72;
-    final double wireY2 = size.height * 0.84;
+    final double wireY1 = size.height * 0.73;
+    final double wireY2 = size.height * 0.85;
 
-    // Connect wires
+    // Trellis wires
     canvas.drawLine(Offset(0, wireY1), Offset(size.width, wireY1), wirePaint);
     canvas.drawLine(Offset(0, wireY2), Offset(size.width, wireY2), wirePaint);
 
-    for (var x in postXPositions) {
-      canvas.drawLine(Offset(x, size.height * 0.65), Offset(x, size.height * 0.95), postPaint);
+    final List<double> postXs = [size.width * 0.12, size.width * 0.5, size.width * 0.88];
+    for (var x in postXs) {
+      canvas.drawLine(Offset(x, size.height * 0.66), Offset(x, size.height * 0.96), postPaint);
+      // Detailed grain line
+      canvas.drawLine(
+        Offset(x + 1, size.height * 0.68),
+        Offset(x + 1, size.height * 0.94),
+        Paint()..color = Colors.black38..strokeWidth = 1.0,
+      );
     }
 
-    // Draw Vine Leaves and Grape Bunches hanging on wires
+    // Leaf Shaders
+    final isNightScene = currentScene == "night";
     final Paint leafPaint = Paint()
-      ..color = const Color(0xFF388E3C)
-      ..style = PaintingStyle.fill;
+      ..shader = RadialGradient(
+        colors: isNightScene
+            ? [const Color(0xFF1B4332), const Color(0xFF081C15)]
+            : [const Color(0xFF4CAF50), const Color(0xFF2E7D32)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
+    // Realistic Grape cluster colors
     final Paint grapePaint = Paint()
-      ..color = const Color(0xFF4A148C) // rich grape purple
-      ..style = PaintingStyle.fill;
+      ..shader = RadialGradient(
+        colors: isNightScene
+            ? [const Color(0xFF4A148C), const Color(0xFF1A0033)]
+            : [const Color(0xFF8E24AA), const Color(0xFF311B92)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
-    final List<double> vineCenters = [
-      size.width * 0.32,
-      size.width * 0.68,
-    ];
+    final List<double> vineCenters = [size.width * 0.31, size.width * 0.69];
 
     for (var centerX in vineCenters) {
-      // Main wood trunk
+      // Wood trunk paths
       final Path trunk = Path()
-        ..moveTo(centerX, size.height * 0.95)
-        ..quadraticBezierTo(centerX - 10, size.height * 0.82, centerX, wireY1);
-      canvas.drawPath(trunk, Paint()..color = const Color(0xFF5D4037)..strokeWidth = 5.0..style = PaintingStyle.stroke);
+        ..moveTo(centerX, size.height * 0.96)
+        ..quadraticBezierTo(centerX - 12, size.height * 0.83, centerX, wireY1);
+      canvas.drawPath(trunk, Paint()..color = const Color(0xFF4E342E)..strokeWidth = 5.5..style = PaintingStyle.stroke);
 
-      // Swaying canopy leaves
+      // Realistic detailed grape leaves & bunches
       for (int i = -3; i <= 3; i++) {
-        final double leafX = centerX + (i * 20) + sway;
-        // Upper leaf canopy
-        canvas.drawCircle(Offset(leafX, wireY1 - 4), 10, leafPaint);
-        // Lower leaf canopy
-        canvas.drawCircle(Offset(leafX - 6, wireY2), 9, leafPaint);
+        final double leafX = centerX + (i * 22) + sway;
+        
+        // Draw realistic 3-lobed grape leaf shapes using bezier paths
+        _drawGrapeLeaf(canvas, Offset(leafX, wireY1 - 5), 11, leafPaint);
+        _drawGrapeLeaf(canvas, Offset(leafX - 5, wireY2), 10, leafPaint);
 
-        // Hanging grape bunches (drawn staggered under leaves)
+        // Glistening Grape Bunches
         if (i.abs() == 1) {
           final double grapeX = leafX;
           final double grapeY = wireY1 + 10;
           
-          // Bunch structure (triangle of dots)
-          canvas.drawCircle(Offset(grapeX - 4, grapeY), 3.5, grapePaint);
-          canvas.drawCircle(Offset(grapeX, grapeY), 3.5, grapePaint);
-          canvas.drawCircle(Offset(grapeX + 4, grapeY), 3.5, grapePaint);
-          canvas.drawCircle(Offset(grapeX - 2, grapeY + 5), 3.5, grapePaint);
-          canvas.drawCircle(Offset(grapeX + 2, grapeY + 5), 3.5, grapePaint);
-          canvas.drawCircle(Offset(grapeX, grapeY + 9), 3.5, grapePaint);
+          // Specular grape cluster drawing
+          _drawSpecularGrape(canvas, Offset(grapeX - 5, grapeY), 4, grapePaint);
+          _drawSpecularGrape(canvas, Offset(grapeX + 1, grapeY), 4.2, grapePaint);
+          _drawSpecularGrape(canvas, Offset(grapeX + 6, grapeY), 3.8, grapePaint);
+          _drawSpecularGrape(canvas, Offset(grapeX - 2, grapeY + 6), 4, grapePaint);
+          _drawSpecularGrape(canvas, Offset(grapeX + 3, grapeY + 6), 4.2, grapePaint);
+          _drawSpecularGrape(canvas, Offset(grapeX + 1, grapeY + 11), 3.8, grapePaint);
         }
       }
     }
+  }
+
+  void _drawGrapeLeaf(Canvas canvas, Offset center, double radius, Paint leafPaint) {
+    final Path leaf = Path();
+    final double x = center.dx;
+    final double y = center.dy;
+    
+    // Draw highly structured lobed grape leaf outline
+    leaf.moveTo(x, y - radius);
+    // Top lobe
+    leaf.quadraticBezierTo(x - radius * 0.8, y - radius * 0.8, x - radius, y - radius * 0.2);
+    // Side lobes
+    leaf.quadraticBezierTo(x - radius * 1.3, y + radius * 0.3, x - radius * 0.5, y + radius * 0.8);
+    // Base/Tip
+    leaf.quadraticBezierTo(x, y + radius * 1.3, x + radius * 0.5, y + radius * 0.8);
+    leaf.quadraticBezierTo(x + radius * 1.3, y + radius * 0.3, x + radius, y - radius * 0.2);
+    leaf.quadraticBezierTo(x + radius * 0.8, y - radius * 0.8, x, y - radius);
+    leaf.close();
+
+    canvas.drawPath(leaf, leafPaint);
+
+    // Drawing leaf veins for photorealism
+    final Paint veinPaint = Paint()
+      ..color = const Color(0xFF81C784).withValues(alpha: 0.5)
+      ..strokeWidth = 0.8
+      ..style = PaintingStyle.stroke;
+    
+    canvas.drawLine(Offset(x, y + radius * 0.8), Offset(x, y - radius * 0.6), veinPaint);
+    canvas.drawLine(Offset(x, y + radius * 0.3), Offset(x - radius * 0.7, y - radius * 0.2), veinPaint);
+    canvas.drawLine(Offset(x, y + radius * 0.3), Offset(x + radius * 0.7, y - radius * 0.2), veinPaint);
+  }
+
+  void _drawSpecularGrape(Canvas canvas, Offset center, double radius, Paint grapePaint) {
+    // Draw grape body
+    canvas.drawCircle(center, radius, grapePaint);
+    
+    // Specular highlight dot (glistening light reflection)
+    final Paint highlight = Paint()..color = Colors.white.withValues(alpha: 0.65);
+    canvas.drawCircle(Offset(center.dx - radius * 0.35, center.dy - radius * 0.35), radius * 0.25, highlight);
   }
 
   void _drawForegroundEffects(Canvas canvas, Size size, String scene, double opacity) {
     if (opacity <= 0.02) return;
 
     if (scene == "rain" || scene == "storm") {
-      final int dropsCount = scene == "storm" ? 45 : 20;
+      final int count = scene == "storm" ? 50 : 25;
       final Paint rainPaint = Paint()
-        ..color = Colors.white70.withValues(alpha: opacity * 0.6)
-        ..strokeWidth = scene == "storm" ? 1.5 : 1.0;
+        ..color = Colors.white70.withValues(alpha: opacity * 0.45)
+        ..strokeWidth = scene == "storm" ? 1.6 : 1.1;
 
-      final double angleSlant = (windSpeed / 20.0) * 12.0;
+      final double angleSlant = (windSpeed / 18.0) * 14.0;
 
-      for (int i = 0; i < dropsCount; i++) {
-        final double spawnX = (i * (size.width / dropsCount) + (animationValue * 150)) % size.width;
-        final double spawnY = (animationValue * size.height + (i * 25)) % size.height;
+      for (int i = 0; i < count; i++) {
+        final double spawnX = (i * (size.width / count) + (animationValue * 200)) % size.width;
+        final double spawnY = (animationValue * size.height + (i * 20)) % size.height;
 
         canvas.drawLine(
           Offset(spawnX, spawnY),
-          Offset(spawnX - angleSlant, spawnY + 12),
+          Offset(spawnX - angleSlant, spawnY + 14),
           rainPaint,
         );
       }
 
-      // Lightning triggers on storm scene periodically
+      // Volumetric lightning bolts (Storm scene)
       if (scene == "storm") {
         final double strikeTrigger = math.sin(animationValue * math.pi * 10.0);
-        if (strikeTrigger > 0.94) {
-          // Screen flash overlay
+        if (strikeTrigger > 0.95) {
+          // Ambient sky flash
           canvas.drawRect(
             Offset.zero & size,
-            Paint()..color = Colors.white.withValues(alpha: opacity * 0.28),
+            Paint()..color = Colors.white.withValues(alpha: opacity * 0.25),
           );
 
-          // Lightning Bolt path
+          // Realistic zig-zag branching walk path
           final Paint boltPaint = Paint()
-            ..color = Colors.cyan[100]!.withValues(alpha: opacity)
-            ..strokeWidth = 3.5
-            ..style = PaintingStyle.stroke;
+            ..color = const Color(0xFFE0F7FA).withValues(alpha: opacity)
+            ..strokeWidth = 3.0
+            ..style = PaintingStyle.stroke
+            ..strokeCap = StrokeCap.round;
 
-          final double strikeX = size.width * 0.4;
+          final double strikeX = size.width * 0.45;
           final Path bolt = Path()
             ..moveTo(strikeX, 0)
-            ..lineTo(strikeX - 20, size.height * 0.3)
-            ..lineTo(strikeX + 10, size.height * 0.25)
-            ..lineTo(strikeX - 10, size.height * 0.6)
-            ..lineTo(strikeX, size.height * 0.55)
-            ..lineTo(strikeX - 15, size.height * 0.75);
+            ..lineTo(strikeX - 15, size.height * 0.25)
+            ..lineTo(strikeX + 8, size.height * 0.22)
+            ..lineTo(strikeX - 8, size.height * 0.5)
+            ..lineTo(strikeX + 4, size.height * 0.45)
+            ..lineTo(strikeX - 12, size.height * 0.7);
           canvas.drawPath(bolt, boltPaint);
         }
       }
     } 
     
     else if (scene == "fog") {
-      // Layered fog sheets drifting horizontally
+      // Realistic volumetric mist layers moving independently
       final Paint fogPaint = Paint()
-        ..color = Colors.white.withValues(alpha: opacity * 0.28)
+        ..color = Colors.white.withValues(alpha: opacity * 0.3)
         ..style = PaintingStyle.fill;
 
-      final double drift = animationValue * size.width;
+      final double drift = animationValue * size.width * 0.8;
       
       canvas.drawOval(
         Rect.fromCenter(
-          center: Offset(drift % (size.width + 200) - 100, size.height * 0.8),
-          width: size.width * 1.2,
-          height: 35,
+          center: Offset(drift % (size.width + 240) - 120, size.height * 0.82),
+          width: size.width * 1.3,
+          height: 38,
         ),
         fogPaint,
       );
 
       canvas.drawOval(
         Rect.fromCenter(
-          center: Offset((drift + size.width * 0.5) % (size.width + 200) - 100, size.height * 0.6),
+          center: Offset((drift + size.width * 0.6) % (size.width + 240) - 120, size.height * 0.62),
           width: size.width * 1.5,
-          height: 25,
+          height: 28,
         ),
         fogPaint,
       );
@@ -729,7 +942,7 @@ class _VineyardPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _VineyardPainter oldDelegate) {
+  bool shouldRepaint(covariant _PhotorealisticVineyardPainter oldDelegate) {
     return oldDelegate.animationValue != animationValue ||
         oldDelegate.currentScene != currentScene ||
         oldDelegate.prevScene != prevScene ||
