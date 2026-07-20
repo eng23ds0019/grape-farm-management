@@ -173,6 +173,13 @@ class _HomeDashboardState extends State<HomeDashboard> {
       rain = (data['rain']['1h'] as num).toDouble();
     }
 
+    final pressure = (data['main']?['pressure'] as num?)?.toInt() ?? 1013;
+    final visibility = (data['visibility'] as num?)?.toInt() ?? 10000;
+    final sunrise = (data['sys']?['sunrise'] as num?)?.toInt() ?? 0;
+    final sunset = (data['sys']?['sunset'] as num?)?.toInt() ?? 0;
+    final tempMax = (data['main']?['temp_max'] as num?)?.toDouble() ?? temp;
+    final tempMin = (data['main']?['temp_min'] as num?)?.toDouble() ?? temp;
+
     return WeatherData(
       temperature: temp,
       humidity: humidity,
@@ -182,6 +189,12 @@ class _HomeDashboardState extends State<HomeDashboard> {
       forecast: "Similar conditions expected for the next 24 hours.",
       location: data['name']?.toString() ?? "Local farm",
       cloud_cover: cloudCover,
+      pressure: pressure,
+      visibility: visibility,
+      sunrise: sunrise,
+      sunset: sunset,
+      temp_max: tempMax,
+      temp_min: tempMin,
     );
   }
 
