@@ -147,6 +147,7 @@ async def predict_disease(req: DiseaseRequest):
     memory = retrieve_farm_memory(req.uid)
     result = calculate_disease_risk(weather, memory.get("diaries", []), memory.get("plots", []))
     result["weather"] = format_for_prompt(weather)
+    result["weather_raw"] = weather
     return result
 
 
