@@ -27,7 +27,7 @@ class DrakshaApiClient {
               if (imageBase64 != null) "image_base64": imageBase64,
             }),
           )
-          .timeout(const Duration(seconds: 60));
+          .timeout(const Duration(seconds: 180));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
