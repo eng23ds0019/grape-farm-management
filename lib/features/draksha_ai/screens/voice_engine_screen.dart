@@ -281,11 +281,11 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
     // 1. Prepend language preference directives to query
     String formattedQuery = query;
     if (langCode == 'kn-IN') {
-      formattedQuery = "[Language: Kannada. Respond ONLY in Kannada language. Greeting, reasoning, weather, recommendation, explanation and everything must be in Kannada. User question]: $query";
+      formattedQuery = "[Language: Kannada] $query";
     } else if (langCode == 'hi-IN') {
-      formattedQuery = "[Language: Hindi. Respond ONLY in Hindi language. Greeting, reasoning, weather, recommendation, explanation and everything must be in Hindi. User question]: $query";
+      formattedQuery = "[Language: Hindi] $query";
     } else {
-      formattedQuery = "[Language: English. Respond ONLY in English. Greeting, reasoning, weather, recommendation, explanation and everything must be in English. User question]: $query";
+      formattedQuery = "[Language: English] $query";
     }
 
     setState(() {
@@ -364,7 +364,7 @@ class _VoiceEngineScreenState extends State<VoiceEngineScreen> with SingleTicker
     final recommendedSpray = result['recommendedSpray'] as String? ?? "None";
     final cropStage = result['cropStage'] as String? ?? "Unknown";
     
-    final bool isDiagnosisMsg = (imagePayload.isNotEmpty || (diseaseName != "None" && diseaseName.isNotEmpty));
+    final bool isDiagnosisMsg = imagePayload.isNotEmpty || (diseaseRisk == "High" && diseaseName != "None" && diseaseName.isNotEmpty);
 
     setState(() {
       _isProcessing = false;

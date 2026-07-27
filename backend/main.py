@@ -109,6 +109,30 @@ async def orchestrate(req: ChatRequest):
             language=req.language or "en",
             image_base64=req.image_base64
         )
+        
+        # Save chat interaction to Firestore for conversation memory
+        try:
+            import firebase_admin
+            from firebase_admin import firestore as fs
+            if firebase_admin._apps and req.uid:
+                db = fs.client()
+                clean_q = re.sub(r"\[Language:.*?User question\]:\s*", "", req.query, flags=re.IGNORECASE).strip()
+                
+                db.collection("users").document(req.uid).collection("chats").add({
+                    "role": "user",
+                    "text": clean_q,
+                    "timestamp": fs.SERVER_TIMESTAMP
+                })
+                db.collection("users").document(req.uid).collection("chats").add({
+                    "role": "assistant",
+                    "text": result.get("response", ""),
+                    "timestamp": fs.SERVER_TIMESTAMP
+                })
+                from services.farm_memory import invalidate_cache
+                invalidate_cache(req.uid)
+        except Exception as chat_err:
+            print(f"⚠️ Could not save chat turn to Firestore: {chat_err}")
+
         return result
     except Exception as e:
         print(f"❌ Orchestration error: {e}")
